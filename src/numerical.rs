@@ -6,13 +6,10 @@
 //! in general the components of this module are _not_ safe with respect to floating point errors.
 //! Therefore this module is _not_ ready to be used in safety-critical contexts.
 
-use std::collections::HashMap;
-use crate::AbstractDomain;
 pub use crate::numerical::interval::Interval;
+use crate::AbstractDomain;
+use std::collections::HashMap;
 pub mod interval;
-
-pub use crate::numerical::zonotope::Zonotope;
-mod zonotope;
 
 /// An affine transformation is a linear combination of the program variables plus a constant. If
 /// the program variables form a vector `x`, then the result of applying the affine transformation
@@ -26,7 +23,6 @@ pub struct AffineTransform {
 }
 
 impl AffineTransform {
-
     /// Create a new AffineTransform which maps all inputs to zero.
     ///
     /// # Arguments
@@ -58,7 +54,8 @@ impl AffineTransform {
     /// assert_eq!(a, AffineTransform::zero(3));
     /// ```
     pub fn from_coeffs<I>(cfs: I, ct: f64) -> AffineTransform
-        where I: IntoIterator<Item = f64>
+    where
+        I: IntoIterator<Item = f64>,
     {
         AffineTransform {
             coeffs: cfs.into_iter().collect(),
@@ -151,13 +148,12 @@ impl PartialEq for LinearConstraint {
                     return false;
                 }
             }
-            return self.cst / other.cst == rat;
+            self.cst / other.cst == rat
         }
     }
 }
 
 impl LinearConstraint {
-
     /// Create a new `LinearConstraint` which is satisfied for every point. Specifically, the
     /// constructs the linear constraint 0 <= 1.
     ///
@@ -191,7 +187,8 @@ impl LinearConstraint {
     /// assert_eq!(lc, LinearConstraint::unconstrained(3));
     /// ```
     pub fn from_coeffs<I>(cfs: I, ct: f64) -> LinearConstraint
-        where I: IntoIterator<Item = f64>
+    where
+        I: IntoIterator<Item = f64>,
     {
         LinearConstraint {
             coeffs: cfs.into_iter().collect(),
@@ -207,13 +204,12 @@ impl LinearConstraint {
     /// assert_eq!(LinearConstraint::unconstrained(3).dims(), 3);
     /// ```
     pub fn dims(&self) -> usize {
-        return self.coeffs.len();
+        self.coeffs.len()
     }
 }
 
 /// Abstract domains over a numerical space.
 pub trait NumericalDomain: AbstractDomain {
-
     /// Modify the space by applying a set of affine transformations in parallel. The
     /// transformations are given as a HashMap associating dimensions with transformations. Each
     /// dimensions which is present in the HashMap is replaced by the evaluation of the associated
@@ -265,7 +261,8 @@ pub trait NumericalDomain: AbstractDomain {
     /// assert!(a.constrain(vec![lc2].iter()).is_bottom());
     /// ```
     fn constrain<'a, I>(&self, cnts: I) -> Self
-        where I: Iterator<Item = &'a LinearConstraint> + Clone;
+    where
+        I: Iterator<Item = &'a LinearConstraint> + Clone;
 }
 
 /// Create a new element of a numerical domain from a given set of linear constraints. This is
@@ -292,8 +289,9 @@ pub trait NumericalDomain: AbstractDomain {
 /// assert_eq!(itv, res);
 /// ```
 pub fn from_lincons<'a, D, I>(dims: usize, cnts: I) -> D
-    where I: Iterator<Item = &'a LinearConstraint> + Clone,
-          D: NumericalDomain
+where
+    I: Iterator<Item = &'a LinearConstraint> + Clone,
+    D: NumericalDomain,
 {
     D::top(dims).constrain(cnts)
 }

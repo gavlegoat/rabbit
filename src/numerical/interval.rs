@@ -22,10 +22,10 @@
 //! [`from_lincons`]: ../fn.from_lincons.html
 //! [`rabbit::numerical`]: ../index.html
 
-use std::collections::HashMap;
-use std::collections::BinaryHeap;
+use crate::numerical::{AffineTransform, LinearConstraint, NumericalDomain};
 use crate::AbstractDomain;
-use crate::numerical::{NumericalDomain, AffineTransform, LinearConstraint};
+use std::collections::BinaryHeap;
+use std::collections::HashMap;
 
 /// A lower bound may be either negative infinity or a real number.
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
@@ -37,7 +37,6 @@ pub enum LowerBound {
 }
 
 impl LowerBound {
-
     /// Add another lower bound to this one.
     fn add(&self, b: &LowerBound) -> LowerBound {
         match self {
@@ -55,7 +54,7 @@ impl LowerBound {
     fn mult(&self, c: f64) -> LowerBound {
         match self {
             LowerBound::NegInf => LowerBound::NegInf,
-            LowerBound::Value(x) => LowerBound::Value(x * c)
+            LowerBound::Value(x) => LowerBound::Value(x * c),
         }
     }
 }
@@ -69,7 +68,7 @@ pub enum UpperBound {
     PosInf,
 }
 
-impl UpperBound{
+impl UpperBound {
     /// Add another upper bound to this one.
     fn add(&self, b: &UpperBound) -> UpperBound {
         match self {
@@ -153,10 +152,7 @@ impl Itv {
     /// assert_eq!(Itv::unbounded(), Itv::from_bounds(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
     pub fn from_bounds(l: LowerBound, u: UpperBound) -> Itv {
-        Itv {
-            lower: l,
-            upper: u,
-        }
+        Itv { lower: l, upper: u }
     }
 
     /// Add two intervals.
@@ -174,7 +170,7 @@ impl Itv {
     pub fn add(&self, b: &Itv) -> Itv {
         Itv {
             lower: self.lower.add(&b.lower),
-            upper: self.upper.add(&b.upper)
+            upper: self.upper.add(&b.upper),
         }
     }
 
@@ -205,7 +201,7 @@ impl Itv {
                 upper: match self.lower {
                     LowerBound::NegInf => UpperBound::PosInf,
                     LowerBound::Value(x) => UpperBound::Value(b * x),
-                }
+                },
             }
         } else {
             Itv {
@@ -216,7 +212,7 @@ impl Itv {
                 upper: match self.upper {
                     UpperBound::Value(x) => UpperBound::Value(x * b),
                     UpperBound::PosInf => UpperBound::PosInf,
-                }
+                },
             }
         }
     }
@@ -236,8 +232,16 @@ impl Itv {
     /// ```
     pub fn join(&self, b: &Itv) -> Itv {
         Itv {
-            lower: if self.lower < b.lower { self.lower } else { b.lower },
-            upper: if self.upper > b.upper { self.upper } else { b.upper },
+            lower: if self.lower < b.lower {
+                self.lower
+            } else {
+                b.lower
+            },
+            upper: if self.upper > b.upper {
+                self.upper
+            } else {
+                b.upper
+            },
         }
     }
 
@@ -255,8 +259,16 @@ impl Itv {
     /// ```
     pub fn meet(&self, b: &Itv) -> Itv {
         Itv {
-            lower: if self.lower > b.lower { self.lower } else { b.lower },
-            upper: if self.upper < b.upper { self.upper } else { b.upper },
+            lower: if self.lower > b.lower {
+                self.lower
+            } else {
+                b.lower
+            },
+            upper: if self.upper < b.upper {
+                self.upper
+            } else {
+                b.upper
+            },
         }
     }
 
@@ -274,27 +286,25 @@ impl Itv {
             LowerBound::Value(x) => match self.upper {
                 UpperBound::PosInf => false,
                 UpperBound::Value(y) => y < x,
-            }
+            },
         }
     }
 }
 
 impl PartialEq for Itv {
     fn eq(&self, other: &Itv) -> bool {
-        (self.is_empty() && other.is_empty()) ||
-            (self.lower == other.lower && self.upper == other.upper)
+        (self.is_empty() && other.is_empty())
+            || (self.lower == other.lower && self.upper == other.upper)
     }
 }
-
 
 /// A hyperinterval.
 #[derive(Clone, Debug)]
 pub struct Interval {
-    bounds: Vec<Itv>
+    bounds: Vec<Itv>,
 }
 
 impl Interval {
-
     /// Construct an interval from a vector of constraints on each dimension.
     ///
     /// # Arguments
@@ -326,7 +336,8 @@ impl Interval {
     /// let i = Interval::from_bounds(vec![0., -1.], vec![1., 2.]);
     /// ```
     pub fn from_bounds<I>(ls: I, us: I) -> Interval
-        where I: IntoIterator<Item = f64>
+    where
+        I: IntoIterator<Item = f64>,
     {
         let mut li = ls.into_iter();
         let mut ui = us.into_iter();
@@ -361,7 +372,7 @@ impl Interval {
     /// i.update_dim(0, Itv::from_double(1., 2.));
     /// assert_eq!(i, Interval::from_bounds(vec![1., -1.], vec![2., 2.]));
     /// ```
-    pub fn update_dim(&mut self, dim: usize, b: Itv) -> () {
+    pub fn update_dim(&mut self, dim: usize, b: Itv) {
         if dim >= self.bounds.len() {
             panic!("Attempting to update do high a dimension in Interval::update_dim");
         }
@@ -385,7 +396,7 @@ impl Interval {
     ///     vec![Itv::from_double(0., 1.),
     ///          Itv::from_bounds(LowerBound::Value(-1.), UpperBound::PosInf)]));
     /// ```
-    pub fn remove_upper_bound(&mut self, dim: usize) -> () {
+    pub fn remove_upper_bound(&mut self, dim: usize) {
         if dim >= self.bounds.len() {
             panic!("Attempting to update too high a dimension in Interval::remove_upper_bound");
         }
@@ -409,7 +420,7 @@ impl Interval {
     ///     vec![Itv::from_double(0., 1.),
     ///          Itv::from_bounds(LowerBound::NegInf, UpperBound::Value(2.))]));
     /// ```
-    pub fn remove_lower_bound(&mut self, dim: usize) -> () {
+    pub fn remove_lower_bound(&mut self, dim: usize) {
         if dim >= self.bounds.len() {
             panic!("Attempting to update too high a dimension in Interval::remove_lower_bound");
         }
@@ -419,40 +430,55 @@ impl Interval {
 
 impl PartialEq for Interval {
     fn eq(&self, other: &Interval) -> bool {
-        (self.is_bottom() && other.is_bottom()) ||
-            self.bounds == other.bounds
+        (self.is_bottom() && other.is_bottom()) || self.bounds == other.bounds
     }
 }
 
 impl AbstractDomain for Interval {
     fn top(dims: usize) -> Interval {
-        Interval::from_vec(vec![Itv { lower: LowerBound::NegInf,
-                                      upper: UpperBound::PosInf }; dims])
+        Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::PosInf
+            };
+            dims
+        ])
     }
 
     fn bottom(dims: usize) -> Interval {
-        Interval::from_vec(vec![Itv { lower: LowerBound::Value(1.0),
-                                      upper: UpperBound::Value(0.0) }; dims])
+        Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(1.0),
+                upper: UpperBound::Value(0.0)
+            };
+            dims
+        ])
     }
 
     fn join(&self, other: &Interval) -> Interval {
         if self.bounds.len() != other.bounds.len() {
             panic!("Mismatched dimensionality in Interval::join");
         }
-        Interval::from_vec(self.bounds.iter()
-                                      .zip(other.bounds.iter())
-                                      .map(|(a, b)| { a.join(b) })
-                                      .collect())
+        Interval::from_vec(
+            self.bounds
+                .iter()
+                .zip(other.bounds.iter())
+                .map(|(a, b)| a.join(b))
+                .collect(),
+        )
     }
 
     fn meet(&self, other: &Interval) -> Interval {
         if self.bounds.len() != other.bounds.len() {
             panic!("Mismatched dimensionality in Interval::meet");
         }
-        Interval::from_vec(self.bounds.iter()
-                                      .zip(other.bounds.iter())
-                                      .map(|(a, b)| { a.meet(b) })
-                                      .collect())
+        Interval::from_vec(
+            self.bounds
+                .iter()
+                .zip(other.bounds.iter())
+                .map(|(a, b)| a.meet(b))
+                .collect(),
+        )
     }
 
     fn is_top(&self) -> bool {
@@ -465,7 +491,7 @@ impl AbstractDomain for Interval {
                 LowerBound::Value(_) => return false,
             }
         }
-        return true;
+        true
     }
 
     fn is_bottom(&self) -> bool {
@@ -473,18 +499,37 @@ impl AbstractDomain for Interval {
             match v.lower {
                 LowerBound::NegInf => (),
                 LowerBound::Value(a) => match v.upper {
-                    UpperBound::Value(b) => if a > b {
-                        return true;
-                    },
+                    UpperBound::Value(b) => {
+                        if a > b {
+                            return true;
+                        }
+                    }
                     UpperBound::PosInf => (),
                 },
             }
         }
-        return false
+        false
+    }
+
+    fn add_dims<I>(&self, dims: I) -> Interval
+        where I: IntoIterator<Item = usize>
+    {
+        let mut ret = self.clone();
+        // Convert ds from indices into the current vector to the indices that need to be added.
+        let mut ds: Vec<usize> = dims.into_iter().collect();
+        ds.sort();
+        for i in 0..ds.len() {
+            ds[i] += i;
+        }
+        for d in ds {
+            ret.bounds.insert(d, Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf });
+        }
+        ret
     }
 
     fn remove_dims<I>(&self, dims: I) -> Interval
-        where I: IntoIterator<Item = usize>
+    where
+        I: IntoIterator<Item = usize>,
     {
         let mut ret = self.clone();
         let mut set = BinaryHeap::new();
@@ -521,7 +566,6 @@ fn eval_affine_itv(itv: &Interval, trans: &AffineTransform) -> Itv {
 }
 
 impl NumericalDomain for Interval {
-
     fn assign(&self, trans: &HashMap<usize, AffineTransform>) -> Interval {
         let mut ret = self.clone();
         for (k, v) in trans {
@@ -534,7 +578,8 @@ impl NumericalDomain for Interval {
     }
 
     fn constrain<'a, I>(&self, cnts: I) -> Interval
-        where I: Iterator<Item = &'a LinearConstraint> + Clone
+    where
+        I: Iterator<Item = &'a LinearConstraint> + Clone,
     {
         let mut ret = self.clone();
         for lc in cnts.clone() {
@@ -544,7 +589,10 @@ impl NumericalDomain for Interval {
         }
         for _ in 0..10 {
             for dim in 0..self.bounds.len() {
-                let mut update = Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf };
+                let mut update = Itv {
+                    lower: LowerBound::NegInf,
+                    upper: UpperBound::PosInf,
+                };
                 for lc in cnts.clone() {
                     let mut bounds = Itv::precise(0.0);
                     for (i, a) in lc.coeffs.iter().enumerate() {
@@ -553,30 +601,35 @@ impl NumericalDomain for Interval {
                         }
                     }
                     bounds = bounds.add(&Itv::precise(-lc.cst));
-                    let dim_bnd =
-                        if lc.coeffs[dim] == 0.0 {
-                            if bounds.lower <= LowerBound::Value(0.0) {
-                                Itv { lower: LowerBound::NegInf,
-                                      upper: UpperBound::PosInf }
-                            } else {
-                                Itv { lower: LowerBound::Value(1.0),
-                                      upper: UpperBound::Value(0.0) }
+                    let dim_bnd = if lc.coeffs[dim] == 0.0 {
+                        if bounds.lower <= LowerBound::Value(0.0) {
+                            Itv {
+                                lower: LowerBound::NegInf,
+                                upper: UpperBound::PosInf,
                             }
-                        } else if lc.coeffs[dim] < 0.0 {
-                            Itv { lower: bounds.lower.mult(1.0 / (- lc.coeffs[dim])),
-                                  upper: UpperBound::PosInf }
                         } else {
-                            match bounds.lower {
-                                LowerBound::NegInf => Itv {
-                                    lower: LowerBound::Value(1.0),
-                                    upper: UpperBound::Value(0.0)
-                                },
-                                LowerBound::Value(c) => Itv {
-                                    lower: LowerBound::NegInf,
-                                    upper: UpperBound::Value(c / (- lc.coeffs[dim]))
-                                }
+                            Itv {
+                                lower: LowerBound::Value(1.0),
+                                upper: UpperBound::Value(0.0),
                             }
-                        };
+                        }
+                    } else if lc.coeffs[dim] < 0.0 {
+                        Itv {
+                            lower: bounds.lower.mult(1.0 / (-lc.coeffs[dim])),
+                            upper: UpperBound::PosInf,
+                        }
+                    } else {
+                        match bounds.lower {
+                            LowerBound::NegInf => Itv {
+                                lower: LowerBound::Value(1.0),
+                                upper: UpperBound::Value(0.0),
+                            },
+                            LowerBound::Value(c) => Itv {
+                                lower: LowerBound::NegInf,
+                                upper: UpperBound::Value(c / (-lc.coeffs[dim])),
+                            },
+                        }
+                    };
                     update = update.meet(&dim_bnd);
                 }
                 ret.update_dim(dim, ret.bounds[dim].meet(&update));
@@ -590,21 +643,41 @@ impl NumericalDomain for Interval {
 mod tests {
 
     use super::*;
-    use crate::AbstractDomain;
     use crate::numerical::NumericalDomain;
+    use crate::AbstractDomain;
 
     fn itv1() -> Interval {
-        Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::Value(2.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }])
+        Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::Value(2.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ])
     }
 
     fn itv3() -> Interval {
-        Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(3.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(4.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }])
+        Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(3.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(4.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ])
     }
 
     #[test]
@@ -615,8 +688,13 @@ mod tests {
 
     #[test]
     fn unconstrained_is_top() {
-        let a = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf }; 3]);
+        let a = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::PosInf
+            };
+            3
+        ]);
         assert!(a.is_top());
     }
 
@@ -695,35 +773,67 @@ mod tests {
 
     #[test]
     fn is_bottom_unsat_constraints() {
-        let unsat = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::Value(2.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(0.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let unsat = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::Value(2.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(0.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert!(unsat.is_bottom());
     }
 
     #[test]
     fn join_normal() {
-        let c = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::Value(3.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let c = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::Value(3.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().join(&itv3()), c);
     }
 
     #[test]
     fn meet_normal() {
-        let c = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(2.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(4.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let c = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(2.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(4.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().meet(&itv3()), c);
     }
 
     #[test]
     fn remove_vars_normal() {
-        let b = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let b = Interval::from_vec(vec![Itv {
+            lower: LowerBound::Value(0.),
+            upper: UpperBound::Value(4.),
+        }]);
         assert_eq!(itv1().remove_dims(vec![0, 1]).dims(), 1);
         assert_eq!(itv1().remove_dims(vec![0, 1]), b);
     }
@@ -732,10 +842,20 @@ mod tests {
     fn assign_zero_gives_zero() {
         let mut zero_trans = HashMap::new();
         zero_trans.insert(0, AffineTransform::zero(3));
-        let c = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(0.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let c = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(0.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().assign(&zero_trans), c);
     }
 
@@ -743,10 +863,20 @@ mod tests {
     fn assign_unbounded() {
         let mut trans = HashMap::new();
         trans.insert(0, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
-        let c = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let c = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().assign(&trans), c);
         trans.insert(1, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
         trans.insert(2, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
@@ -759,17 +889,37 @@ mod tests {
     fn assign_normal() {
         let mut trans = HashMap::new();
         trans.insert(0, AffineTransform::from_coeffs(vec![1., 0., 1.], 2.));
-        let c = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::Value(8.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let c = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::Value(8.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().assign(&trans), c);
         let mut n_trans = HashMap::new();
         n_trans.insert(0, AffineTransform::from_coeffs(vec![0., -1., -1.], -1.));
-        let d = Interval::from_vec(
-            vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::Value(-2.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::PosInf },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
+        let d = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::NegInf,
+                upper: UpperBound::Value(-2.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::PosInf,
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
         assert_eq!(itv1().assign(&n_trans), d);
     }
 
@@ -787,20 +937,52 @@ mod tests {
     #[test]
     fn constrain_normal() {
         let lc1 = LinearConstraint::from_coeffs(vec![1., 0., 0.], 1.);
-        let lc2 = vec![LinearConstraint::from_coeffs(vec![0., 0., -1.], -1.),
-                       LinearConstraint::from_coeffs(vec![1., 1., 0.], 1.)];
-        let itv4 = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(2.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(2.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(2.) }]);
-        let res1 = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(1.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(4.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(4.) }]);
-        let res2 = Interval::from_vec(
-            vec![Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) },
-                 Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) },
-                 Itv { lower: LowerBound::Value(1.), upper: UpperBound::Value(2.) }]);
+        let lc2 = vec![
+            LinearConstraint::from_coeffs(vec![0., 0., -1.], -1.),
+            LinearConstraint::from_coeffs(vec![1., 1., 0.], 1.),
+        ];
+        let itv4 = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(2.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(2.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(2.),
+            },
+        ]);
+        let res1 = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(1.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(4.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(4.),
+            },
+        ]);
+        let res2 = Interval::from_vec(vec![
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(1.),
+            },
+            Itv {
+                lower: LowerBound::Value(0.),
+                upper: UpperBound::Value(1.),
+            },
+            Itv {
+                lower: LowerBound::Value(1.),
+                upper: UpperBound::Value(2.),
+            },
+        ]);
         assert_eq!(itv3().constrain(vec![lc1].iter()), res1);
         assert_eq!(itv4.constrain(lc2.iter()), res2);
     }

@@ -1,5 +1,5 @@
-#![crate_name="rabbit"]
-#![crate_type="lib"]
+#![crate_name = "rabbit"]
+#![crate_type = "lib"]
 #![warn(missing_docs)]
 
 //! A library for abstract interpretation.
@@ -15,7 +15,6 @@ pub mod numerical;
 
 /// Defines all of the basic functionality needed to perform abstract interpretation.
 pub trait AbstractDomain {
-
     /// Create a new top element. The top element includes every possible value.
     ///
     /// # Arguments
@@ -117,6 +116,35 @@ pub trait AbstractDomain {
     /// ```
     fn is_bottom(&self) -> bool;
 
+    /// Add new variables to the constrained space. The new variables are assumed to be
+    /// unconstrained. That is, the result will be an extrusion of the existing abstract value
+    /// along the new variables.
+    ///
+    /// # Argumets
+    /// * `dims` - The dimensions before which to add new dimensions. If a dimension appears
+    ///   multiple times, multiple dimensions will be added in the same space. If an element of
+    ///   dims is greater than the number of dimensions of the constrained space, then the new
+    ///   dimension is added at the end.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::AbstractDomain;
+    /// # use rabbit::numerical::*;
+    /// # use rabbit::numerical::interval::*;
+    /// let a = Interval::from_bounds(vec![0.], vec![1.]);
+    /// assert_eq!(a.add_dims(vec![0, 0]),
+    ///     Interval::from_vec(
+    ///         vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf },
+    ///              Itv { oower: LowerBound::NegInf, upper: UpperBound::PosInf },
+    ///              Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) }]));
+    /// assert_eq!(a.add_dims(vec![2]),
+    ///     Interval::from_vec(
+    ///         Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) },
+    ///         Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf }));
+    /// ```
+    fn add_dims<I>(&self, dims: I) -> Self
+        where I: IntoIterator<Item = usize>;
+
     /// Remove some set of variables from the constrained space. This is a projection onto the
     /// remaining dimensions.
     ///
@@ -135,7 +163,8 @@ pub trait AbstractDomain {
     /// assert_eq!(a.remove_dims(vec![0]), Interval::from_bounds(vec![0.], vec![3.]));
     /// ```
     fn remove_dims<I>(&self, dims: I) -> Self
-        where I: IntoIterator<Item = usize>;
+    where
+        I: IntoIterator<Item = usize>;
 
     /// Get the number of variables constrained by this element.
     ///
@@ -171,8 +200,9 @@ pub trait AbstractDomain {
 /// assert_eq!(join_all(2, vec![a, b, c].iter()), res);
 /// ```
 pub fn join_all<'a, D: 'a, I>(dims: usize, es: I) -> D
-    where D: AbstractDomain,
-          I: Iterator<Item = &'a D>
+where
+    D: AbstractDomain,
+    I: Iterator<Item = &'a D>,
 {
     es.fold(D::bottom(dims), |acc, x| acc.join(&x))
 }
@@ -198,9 +228,9 @@ pub fn join_all<'a, D: 'a, I>(dims: usize, es: I) -> D
 /// assert_eq!(meet_all(2, vec![a, b, c].iter()), res);
 /// ```
 pub fn meet_all<'a, D: 'a, I>(dims: usize, es: I) -> D
-    where D: AbstractDomain,
-          I: Iterator<Item = &'a D>
+where
+    D: AbstractDomain,
+    I: Iterator<Item = &'a D>,
 {
     es.fold(D::top(dims), |acc, x| acc.meet(&x))
 }
-
