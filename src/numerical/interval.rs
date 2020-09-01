@@ -84,22 +84,48 @@ impl UpperBound {
 /// A one dimensional interval over real numbers.
 #[derive(Copy, Clone, Debug)]
 pub struct Itv {
+    /// The lower bound of this interval.
     lower: LowerBound,
+    /// The upper bound of this interval.
     upper: UpperBound,
+    /// Determines whether the lower bound is included in the interval.
+    lower_incl: bool,
+    /// Determines whether the lower bound is included in the interval.
+    upper_incl: bool,
 }
 
 impl Itv {
     /// Construct an interval including all reals.
     ///
-    /// # Example:
+    /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert_eq!(Itv::unbounded(), Itv::from_bounds(LowerBound::NegInf, UpperBound::PosInf));
+    /// assert_eq!(Itv::unbounded(),
+    ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
     pub fn unbounded() -> Itv {
         Itv {
             lower: LowerBound::NegInf,
             upper: UpperBound::PosInf,
+            lower_incl: false,
+            upper_incl: false,
+        }
+    }
+
+    /// Construct an empty interval.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::empty(),
+    ///     Itv::from_bounds_closed(LowerBound::Value(3.), UpperBound::Value(1.)));
+    /// ```
+    pub fn empty() -> Itv {
+        Itv {
+            lower: LowerBound::Value(1.),
+            upper: UpperBound::Value(0.),
+            lower_incl: false,
+            upper_incl: false,
         }
     }
 
@@ -112,16 +138,18 @@ impl Itv {
     /// ```
     /// # use rabbit::numerical::interval::*;
     /// assert_eq!(Itv::precise(2.),
-    ///     Itv::from_bounds(LowerBound::Value(2.), UpperBound::Value(2.)));
+    ///     Itv::from_bounds_closed(LowerBound::Value(2.), UpperBound::Value(2.)));
     /// ```
     pub fn precise(a: f64) -> Itv {
         Itv {
             lower: LowerBound::Value(a),
             upper: UpperBound::Value(a),
+            lower_incl: true,
+            upper_incl: true,
         }
     }
 
-    /// Construct an interval given two real-valued bounds.
+    /// Construct a closed interval given two real-valued bounds.
     ///
     /// # Arguments
     /// * `l` - The lower bound.
@@ -130,17 +158,40 @@ impl Itv {
     /// Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert_eq!(Itv::from_double(0., 2.),
-    ///     Itv::from_bounds(LowerBound::Value(0.), UpperBound::Value(2.)));
+    /// assert_eq!(Itv::from_double_closed(0., 2.),
+    ///     Itv::from_bounds_closed(LowerBound::Value(0.), UpperBound::Value(2.)));
     /// ```
-    pub fn from_double(l: f64, u: f64) -> Itv {
+    pub fn from_double_closed(l: f64, u: f64) -> Itv {
         Itv {
             lower: LowerBound::Value(l),
             upper: UpperBound::Value(u),
+            lower_incl: true,
+            upper_incl: true,
         }
     }
 
-    /// Construct an interval given bounds.
+    /// Construct an open interval given two real-valued bounds.
+    ///
+    /// # Arguments
+    /// * `l` - The lower bound.
+    /// * `u` - The upper bound.
+    ///
+    /// Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::from_double_open(0., 2.),
+    ///     Itv::from_bounds_open(LowerBound::Value(0.), UpperBound::Value(2.)));
+    /// ```
+    pub fn from_double_open(l: f64, u: f64) -> Itv {
+        Itv {
+            lower: LowerBound::Value(l),
+            upper: UpperBound::Value(u),
+            lower_incl: false,
+            upper_incl: false,
+        }
+    }
+
+    /// Construct an interval from given bounds where non-infinite bounds are included.
     ///
     /// # Arguments
     /// * `l` - The lower bound.
@@ -149,13 +200,71 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert_eq!(Itv::unbounded(), Itv::from_bounds(LowerBound::NegInf, UpperBound::PosInf));
+    /// assert_eq!(Itv::unbounded(),
+    ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
-    pub fn from_bounds(l: LowerBound, u: UpperBound) -> Itv {
-        Itv { lower: l, upper: u }
+    pub fn from_bounds_closed(l: LowerBound, u: UpperBound) -> Itv {
+        Itv {
+            lower: l,
+            upper: u,
+            lower_incl: match l {
+                LowerBound::NegInf => false,
+                _ => true,
+            },
+            upper_incl: match u {
+                UpperBound::PosInf => false,
+                _ => true,
+            },
+        }
     }
 
-    /// Add two intervals.
+    /// Construct an interval from given bounds where the bounds are excluded.
+    ///
+    /// # Arguments
+    /// * `l` - The lower bound.
+    /// * `u` - The upper bound.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::unbounded(),
+    ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
+    /// ```
+    pub fn from_bounds_open(l: LowerBound, u: UpperBound) -> Itv {
+        Itv {
+            lower: l,
+            upper: u,
+            lower_incl: false,
+            upper_incl: false,
+        }
+    }
+
+    /// Construct an interval where bounds may or may not be included.
+    ///
+    /// # Arguments
+    /// * `l` - The lower bound.
+    /// * `incl_l` - Whether to include the lower bound in the interval.
+    /// * `u` - The upper bound.
+    /// * `incl_u` - Whether to include the upper bound in the interval.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::from_double_closed(0., 1.),
+    ///     Itv::from_bounds(LowerBound::Value(0.), true, UpperBound::Value(1.), true));
+    /// assert_eq!(Itv::from_double_open(0., 1.),
+    ///     Itv::from_bounds(LowerBound::Value(0.), false, UpperBound::Value(1.), false));
+    /// ```
+    pub fn from_bounds(l: LowerBound, incl_l: bool, u: UpperBound, incl_u: bool) -> Itv {
+        Itv {
+            lower: l,
+            upper: u,
+            lower_incl: incl_l && l != LowerBound::NegInf,
+            upper_incl: incl_u && u != UpperBound::PosInf,
+        }
+    }
+
+    /// Add two intervals. If either interval is empty, return empty.
     ///
     /// # Arguments
     /// * `b` - Another interval to add to this one.
@@ -163,14 +272,21 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let a = Itv::from_double(0., 2.);
-    /// let b = Itv::from_double(1., 4.);
-    /// assert_eq!(a.add(&b), Itv::from_double(1., 6.));
+    /// let a = Itv::from_double_closed(0., 2.);
+    /// let b = Itv::from_double_closed(1., 4.);
+    /// assert_eq!(a.add(&b), Itv::from_double_closed(1., 6.));
     /// ```
     pub fn add(&self, b: &Itv) -> Itv {
+        if self.is_empty() {
+            return self.clone();
+        } else if b.is_empty() {
+            return b.clone();
+        }
         Itv {
             lower: self.lower.add(&b.lower),
             upper: self.upper.add(&b.upper),
+            lower_incl: self.lower_incl && b.lower_incl,
+            upper_incl: self.upper_incl && b.upper_incl,
         }
     }
 
@@ -182,14 +298,18 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let a = Itv::from_double(-1., 3.);
-    /// assert_eq!(a.mult(2.), Itv::from_double(-2., 6.));
-    /// assert_eq!(a.mult(-2.), Itv::from_double(-6., 2.));
+    /// let a = Itv::from_double_closed(-1., 3.);
+    /// assert_eq!(a.mult(2.), Itv::from_double_closed(-2., 6.));
+    /// assert_eq!(a.mult(-2.), Itv::from_double_closed(-6., 2.));
     /// assert_eq!(a.mult(0.), Itv::precise(0.));
-    /// let b = Itv::from_bounds(LowerBound::NegInf, UpperBound::Value(2.));
-    /// assert_eq!(b.mult(-2.), Itv::from_bounds(LowerBound::Value(-4.), UpperBound::PosInf));
+    /// let b = Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.));
+    /// assert_eq!(b.mult(-2.),
+    ///     Itv::from_bounds_closed(LowerBound::Value(-4.), UpperBound::PosInf));
     /// ```
     pub fn mult(&self, b: f64) -> Itv {
+        if self.is_empty() {
+            return self.clone();
+        }
         if b == 0.0 {
             Itv::precise(0.0)
         } else if b < 0.0 {
@@ -202,6 +322,8 @@ impl Itv {
                     LowerBound::NegInf => UpperBound::PosInf,
                     LowerBound::Value(x) => UpperBound::Value(b * x),
                 },
+                lower_incl: self.upper_incl,
+                upper_incl: self.lower_incl,
             }
         } else {
             Itv {
@@ -213,6 +335,8 @@ impl Itv {
                     UpperBound::Value(x) => UpperBound::Value(x * b),
                     UpperBound::PosInf => UpperBound::PosInf,
                 },
+                lower_incl: self.lower_incl,
+                upper_incl: self.upper_incl,
             }
         }
     }
@@ -225,12 +349,17 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert_eq!(Itv::from_double(0., 2.).join(&Itv::from_double(1., 3.)),
-    ///     Itv::from_double(0., 3.));
-    /// assert_eq!(Itv::from_double(0., 1.).join(&Itv::from_double(2., 3.)),
-    ///     Itv::from_double(0., 3.));
+    /// assert_eq!(Itv::from_double_closed(0., 2.).join(&Itv::from_double_closed(1., 3.)),
+    ///     Itv::from_double_closed(0., 3.));
+    /// assert_eq!(Itv::from_double_closed(0., 1.).join(&Itv::from_double_closed(2., 3.)),
+    ///     Itv::from_double_closed(0., 3.));
     /// ```
     pub fn join(&self, b: &Itv) -> Itv {
+        if self.is_empty() {
+            return b.clone();
+        } else if b.is_empty() {
+            return self.clone();
+        }
         Itv {
             lower: if self.lower < b.lower {
                 self.lower
@@ -242,6 +371,20 @@ impl Itv {
             } else {
                 b.upper
             },
+            lower_incl: if self.lower < b.lower {
+                self.lower_incl
+            } else if self.lower == b.lower {
+                self.lower_incl || b.lower_incl
+            } else {
+                b.lower_incl
+            },
+            upper_incl: if self.upper > b.upper {
+                self.upper_incl
+            } else if self.upper == b.upper {
+                self.upper_incl || b.upper_incl
+            } else {
+                b.upper_incl
+            }
         }
     }
 
@@ -253,11 +396,17 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert_eq!(Itv::from_double(0., 2.).meet(&Itv::from_double(1., 3.)),
-    ///     Itv::from_double(1., 2.));
-    /// assert_eq!(Itv::unbounded().meet(&Itv::from_double(0., 2.)), Itv::from_double(0., 2.));
+    /// assert_eq!(Itv::from_double_closed(0., 2.).meet(&Itv::from_double_closed(1., 3.)),
+    ///     Itv::from_double_closed(1., 2.));
+    /// assert_eq!(Itv::unbounded().meet(&Itv::from_double_closed(0., 2.)),
+    ///     Itv::from_double_closed(0., 2.));
     /// ```
     pub fn meet(&self, b: &Itv) -> Itv {
+        if self.is_empty() {
+            return self.clone();
+        } else if b.is_empty() {
+            return b.clone();
+        }
         Itv {
             lower: if self.lower > b.lower {
                 self.lower
@@ -269,6 +418,20 @@ impl Itv {
             } else {
                 b.upper
             },
+            lower_incl: if self.lower > b.lower {
+                self.lower_incl
+            } else if self.lower == b.lower {
+                self.lower_incl && b.lower_incl
+            } else {
+                b.lower_incl
+            },
+            upper_incl: if self.upper < b.upper {
+                self.upper_incl
+            } else if self.upper == b.upper {
+                self.upper_incl && b.upper_incl
+            } else {
+                b.upper_incl
+            },
         }
     }
 
@@ -277,7 +440,7 @@ impl Itv {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// assert!(Itv::from_double(1., 0.).is_empty());
+    /// assert!(Itv::from_double_closed(1., 0.).is_empty());
     /// assert!(!Itv::unbounded().is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
@@ -285,16 +448,73 @@ impl Itv {
             LowerBound::NegInf => false,
             LowerBound::Value(x) => match self.upper {
                 UpperBound::PosInf => false,
-                UpperBound::Value(y) => y < x,
+                UpperBound::Value(y) => y < x || (y == x && !self.lower_incl && !self.upper_incl),
             },
+        }
+    }
+
+    /// Determine whether this interval includes all reals.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert!(Itv::unbounded().is_unbounded());
+    /// assert!(!Itv::empty().is_unbounded());
+    /// ```
+    pub fn is_unbounded(&self) -> bool {
+        match self.lower {
+            LowerBound::NegInf => match self.upper {
+                UpperBound::PosInf => true,
+                _ => false,
+            }
+            _ => false,
+        }
+    }
+
+    /// Remove the lower bound from this interval.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::from_double_closed(0., 2.).remove_lower_bound(),
+    ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.)));
+    /// ```
+    pub fn remove_lower_bound(&self) -> Itv {
+        Itv {
+            lower: LowerBound::NegInf,
+            upper: self.upper,
+            lower_incl: false,
+            upper_incl: self.upper_incl,
+        }
+    }
+
+    /// Remove the upper bound from this interval.
+    ///
+    /// # Examples
+    /// ```
+    /// # use rabbit::numerical::interval::*;
+    /// assert_eq!(Itv::from_double_closed(0., 2.).remove_upper_bound(),
+    ///     Itv::from_bounds_closed(LowerBound::Value(0.), UpperBound::PosInf));
+    /// ```
+    pub fn remove_upper_bound(&self) -> Itv {
+        Itv {
+            lower: self.lower,
+            upper: UpperBound::PosInf,
+            lower_incl: self.lower_incl,
+            upper_incl: false,
         }
     }
 }
 
 impl PartialEq for Itv {
     fn eq(&self, other: &Itv) -> bool {
+        // We can ignore lower_incl and upper_incl when the bounds are infinite.
         (self.is_empty() && other.is_empty())
-            || (self.lower == other.lower && self.upper == other.upper)
+            || (self.lower == other.lower && self.upper == other.upper &&
+                (self.lower_incl == other.lower_incl && self.upper_incl == other.upper_incl) ||
+                (self.lower == LowerBound::NegInf && self.upper_incl == other.upper_incl) ||
+                (self.upper == UpperBound::PosInf && self.lower_incl == other.lower_incl) ||
+                (self.lower == LowerBound::NegInf && self.upper == UpperBound::PosInf))
     }
 }
 
@@ -326,6 +546,7 @@ impl Interval {
     /// # Arguments
     /// * `ls` - The lower bound of each interval.
     /// * `us` - The upper bound of each interval.
+    /// * `closed` - Determines whether the bounds are included in the interval.
     ///
     /// # Panics
     /// Panics if the two bounds vectors do not have the same length.
@@ -333,9 +554,9 @@ impl Interval {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let i = Interval::from_bounds(vec![0., -1.], vec![1., 2.]);
+    /// let i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// ```
-    pub fn from_bounds<I>(ls: I, us: I) -> Interval
+    pub fn from_doubles<I>(ls: I, us: I, closed: bool) -> Interval
     where
         I: IntoIterator<Item = f64>,
     {
@@ -349,9 +570,13 @@ impl Interval {
                 break;
             }
             if l.is_none() || u.is_none() {
-                panic!("Interval::from_bounds given bounds of different lengths");
+                panic!("Interval::from_doubles given bounds of different lengths");
             }
-            bs.push(Itv::from_double(l.unwrap(), u.unwrap()));
+            if closed {
+                bs.push(Itv::from_double_closed(l.unwrap(), u.unwrap()));
+            } else {
+                bs.push(Itv::from_double_open(l.unwrap(), u.unwrap()));
+            }
         }
         Interval { bounds: bs }
     }
@@ -368,9 +593,9 @@ impl Interval {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let mut i = Interval::from_bounds(vec![0., -1.], vec![1., 2.]);
-    /// i.update_dim(0, Itv::from_double(1., 2.));
-    /// assert_eq!(i, Interval::from_bounds(vec![1., -1.], vec![2., 2.]));
+    /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
+    /// i.update_dim(0, Itv::from_double_closed(1., 2.));
+    /// assert_eq!(i, Interval::from_doubles(vec![1., -1.], vec![2., 2.], true));
     /// ```
     pub fn update_dim(&mut self, dim: usize, b: Itv) {
         if dim >= self.bounds.len() {
@@ -390,17 +615,17 @@ impl Interval {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let mut i = Interval::from_bounds(vec![0., -1.], vec![1., 2.]);
+    /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// i.remove_upper_bound(1);
     /// assert_eq!(i, Interval::from_vec(
-    ///     vec![Itv::from_double(0., 1.),
-    ///          Itv::from_bounds(LowerBound::Value(-1.), UpperBound::PosInf)]));
+    ///     vec![Itv::from_double_closed(0., 1.),
+    ///          Itv::from_bounds_closed(LowerBound::Value(-1.), UpperBound::PosInf)]));
     /// ```
     pub fn remove_upper_bound(&mut self, dim: usize) {
         if dim >= self.bounds.len() {
             panic!("Attempting to update too high a dimension in Interval::remove_upper_bound");
         }
-        self.bounds[dim].upper = UpperBound::PosInf;
+        self.bounds[dim] = self.bounds[dim].remove_upper_bound();
     }
 
     /// Remove the lower bound from some dimension.
@@ -414,17 +639,17 @@ impl Interval {
     /// # Examples
     /// ```
     /// # use rabbit::numerical::interval::*;
-    /// let mut i = Interval::from_bounds(vec![0., -1.], vec![1., 2.]);
+    /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// i.remove_lower_bound(1);
     /// assert_eq!(i, Interval::from_vec(
-    ///     vec![Itv::from_double(0., 1.),
-    ///          Itv::from_bounds(LowerBound::NegInf, UpperBound::Value(2.))]));
+    ///     vec![Itv::from_double_closed(0., 1.),
+    ///          Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.))]));
     /// ```
     pub fn remove_lower_bound(&mut self, dim: usize) {
         if dim >= self.bounds.len() {
             panic!("Attempting to update too high a dimension in Interval::remove_lower_bound");
         }
-        self.bounds[dim].lower = LowerBound::NegInf;
+        self.bounds[dim] = self.bounds[dim].remove_lower_bound();
     }
 }
 
@@ -436,23 +661,11 @@ impl PartialEq for Interval {
 
 impl AbstractDomain for Interval {
     fn top(dims: usize) -> Interval {
-        Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::PosInf
-            };
-            dims
-        ])
+        Interval::from_vec(vec![Itv::unbounded(); dims])
     }
 
     fn bottom(dims: usize) -> Interval {
-        Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(1.0),
-                upper: UpperBound::Value(0.0)
-            };
-            dims
-        ])
+        Interval::from_vec(vec![Itv::empty(); dims])
     }
 
     fn join(&self, other: &Interval) -> Interval {
@@ -483,12 +696,8 @@ impl AbstractDomain for Interval {
 
     fn is_top(&self) -> bool {
         for v in &self.bounds {
-            match v.lower {
-                LowerBound::NegInf => match v.upper {
-                    UpperBound::Value(_) => return false,
-                    UpperBound::PosInf => (),
-                },
-                LowerBound::Value(_) => return false,
+            if !v.is_unbounded() {
+                return false;
             }
         }
         true
@@ -496,16 +705,8 @@ impl AbstractDomain for Interval {
 
     fn is_bottom(&self) -> bool {
         for v in &self.bounds {
-            match v.lower {
-                LowerBound::NegInf => (),
-                LowerBound::Value(a) => match v.upper {
-                    UpperBound::Value(b) => {
-                        if a > b {
-                            return true;
-                        }
-                    }
-                    UpperBound::PosInf => (),
-                },
+            if v.is_empty() {
+                return true;
             }
         }
         false
@@ -522,7 +723,8 @@ impl AbstractDomain for Interval {
             ds[i] += i;
         }
         for d in ds {
-            ret.bounds.insert(d, Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf });
+            let ind = if d > ret.bounds.len() { ret.bounds.len() } else { d };
+            ret.bounds.insert(ind, Itv::unbounded());
         }
         ret
     }
@@ -589,10 +791,7 @@ impl NumericalDomain for Interval {
         }
         for _ in 0..10 {
             for dim in 0..self.bounds.len() {
-                let mut update = Itv {
-                    lower: LowerBound::NegInf,
-                    upper: UpperBound::PosInf,
-                };
+                let mut update = Itv::unbounded();
                 for lc in cnts.clone() {
                     let mut bounds = Itv::precise(0.0);
                     for (i, a) in lc.coeffs.iter().enumerate() {
@@ -603,31 +802,20 @@ impl NumericalDomain for Interval {
                     bounds = bounds.add(&Itv::precise(-lc.cst));
                     let dim_bnd = if lc.coeffs[dim] == 0.0 {
                         if bounds.lower <= LowerBound::Value(0.0) {
-                            Itv {
-                                lower: LowerBound::NegInf,
-                                upper: UpperBound::PosInf,
-                            }
+                            Itv::unbounded()
                         } else {
-                            Itv {
-                                lower: LowerBound::Value(1.0),
-                                upper: UpperBound::Value(0.0),
-                            }
+                            Itv::empty()
                         }
                     } else if lc.coeffs[dim] < 0.0 {
-                        Itv {
-                            lower: bounds.lower.mult(1.0 / (-lc.coeffs[dim])),
-                            upper: UpperBound::PosInf,
-                        }
+                        Itv::from_bounds_closed(
+                            bounds.lower.mult(1.0 / (-lc.coeffs[dim])),
+                            UpperBound::PosInf)
                     } else {
                         match bounds.lower {
-                            LowerBound::NegInf => Itv {
-                                lower: LowerBound::Value(1.0),
-                                upper: UpperBound::Value(0.0),
-                            },
-                            LowerBound::Value(c) => Itv {
-                                lower: LowerBound::NegInf,
-                                upper: UpperBound::Value(c / (-lc.coeffs[dim])),
-                            },
+                            LowerBound::NegInf => Itv::empty(),
+                            LowerBound::Value(c) => Itv::from_bounds_closed(
+                                LowerBound::NegInf,
+                                UpperBound::Value(c / (-lc.coeffs[dim]))),
                         }
                     };
                     update = update.meet(&dim_bnd);
@@ -648,36 +836,28 @@ mod tests {
 
     fn itv1() -> Interval {
         Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::Value(2.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ])
+            Itv::from_bounds_closed(
+                LowerBound::NegInf,
+                UpperBound::Value(2.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))])
     }
 
     fn itv3() -> Interval {
         Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(3.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(4.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ])
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::Value(3.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::Value(4.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))])
     }
 
     #[test]
@@ -688,13 +868,7 @@ mod tests {
 
     #[test]
     fn unconstrained_is_top() {
-        let a = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::PosInf
-            };
-            3
-        ]);
+        let a = Interval::from_vec(vec![Itv::unbounded(); 3]);
         assert!(a.is_top());
     }
 
@@ -774,66 +948,51 @@ mod tests {
     #[test]
     fn is_bottom_unsat_constraints() {
         let unsat = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::Value(2.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(0.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::NegInf,
+                UpperBound::Value(2.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::Value(0.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))]);
         assert!(unsat.is_bottom());
     }
 
     #[test]
     fn join_normal() {
         let c = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::Value(3.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::NegInf,
+                UpperBound::Value(3.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))]);
         assert_eq!(itv1().join(&itv3()), c);
     }
 
     #[test]
     fn meet_normal() {
         let c = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(2.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(4.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::Value(2.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::Value(4.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))]);
         assert_eq!(itv1().meet(&itv3()), c);
     }
 
     #[test]
     fn remove_vars_normal() {
-        let b = Interval::from_vec(vec![Itv {
-            lower: LowerBound::Value(0.),
-            upper: UpperBound::Value(4.),
-        }]);
+        let b = Interval::from_vec(vec![Itv::from_double_closed(0., 4.)]);
         assert_eq!(itv1().remove_dims(vec![0, 1]).dims(), 1);
         assert_eq!(itv1().remove_dims(vec![0, 1]), b);
     }
@@ -843,19 +1002,15 @@ mod tests {
         let mut zero_trans = HashMap::new();
         zero_trans.insert(0, AffineTransform::zero(3));
         let c = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(0.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(0.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))]);
         assert_eq!(itv1().assign(&zero_trans), c);
     }
 
@@ -864,19 +1019,11 @@ mod tests {
         let mut trans = HashMap::new();
         trans.insert(0, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
         let c = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::unbounded(),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_double_closed(0., 4.)]);
         assert_eq!(itv1().assign(&trans), c);
         trans.insert(1, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
         trans.insert(2, AffineTransform::from_coeffs(vec![1., 1., 1.], 0.));
@@ -890,36 +1037,26 @@ mod tests {
         let mut trans = HashMap::new();
         trans.insert(0, AffineTransform::from_coeffs(vec![1., 0., 1.], 2.));
         let c = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::Value(8.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::NegInf,
+                UpperBound::Value(8.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_double_closed(0., 4.)]);
         assert_eq!(itv1().assign(&trans), c);
         let mut n_trans = HashMap::new();
         n_trans.insert(0, AffineTransform::from_coeffs(vec![0., -1., -1.], -1.));
         let d = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::NegInf,
-                upper: UpperBound::Value(-2.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::PosInf,
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_bounds_closed(
+                LowerBound::NegInf,
+                UpperBound::Value(-2.)),
+            Itv::from_bounds_closed(
+                LowerBound::Value(1.),
+                UpperBound::PosInf),
+            Itv::from_bounds_closed(
+                LowerBound::Value(0.),
+                UpperBound::Value(4.))]);
         assert_eq!(itv1().assign(&n_trans), d);
     }
 
@@ -941,49 +1078,36 @@ mod tests {
             LinearConstraint::from_coeffs(vec![0., 0., -1.], -1.),
             LinearConstraint::from_coeffs(vec![1., 1., 0.], 1.),
         ];
-        let itv4 = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(2.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(2.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(2.),
-            },
-        ]);
+        let itv4 = Interval::from_vec(vec![Itv::from_double_closed(0., 2.); 3]);
         let res1 = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(1.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(4.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(4.),
-            },
-        ]);
+            Itv::from_double_closed(1., 1.),
+            Itv::from_double_closed(1., 4.),
+            Itv::from_double_closed(0., 4.)]);
         let res2 = Interval::from_vec(vec![
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(1.),
-            },
-            Itv {
-                lower: LowerBound::Value(0.),
-                upper: UpperBound::Value(1.),
-            },
-            Itv {
-                lower: LowerBound::Value(1.),
-                upper: UpperBound::Value(2.),
-            },
-        ]);
+            Itv::from_double_closed(0., 1.),
+            Itv::from_double_closed(0., 1.),
+            Itv::from_double_closed(1., 2.)]);
         assert_eq!(itv3().constrain(vec![lc1].iter()), res1);
         assert_eq!(itv4.constrain(lc2.iter()), res2);
+    }
+
+    #[test]
+    fn join_bounds() {
+        let a = Interval::from_doubles(vec![0.], vec![1.], true);
+        let b = Interval::from_doubles(vec![0.], vec![2.], false);
+        assert_eq!(a.join(&b),
+            Interval::from_vec(
+                vec![Itv::from_bounds(LowerBound::Value(0.), true,
+                                      UpperBound::Value(2.), false)]));
+    }
+
+    #[test]
+    fn meet_bounds() {
+        let a = Interval::from_doubles(vec![0.], vec![1.], true);
+        let b = Interval::from_doubles(vec![0.], vec![2.], false);
+        assert_eq!(a.meet(&b),
+            Interval::from_vec(
+                vec![Itv::from_bounds(LowerBound::Value(0.), false,
+                                      UpperBound::Value(1.), true)]));
     }
 }

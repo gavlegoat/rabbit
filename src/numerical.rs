@@ -6,10 +6,14 @@
 //! in general the components of this module are _not_ safe with respect to floating point errors.
 //! Therefore this module is _not_ ready to be used in safety-critical contexts.
 
-pub use crate::numerical::interval::Interval;
 use crate::AbstractDomain;
 use std::collections::HashMap;
+
+pub use crate::numerical::interval::Interval;
 pub mod interval;
+
+pub use crate::numerical::polyhedra::Polyhedron;
+mod polyhedra;
 
 /// An affine transformation is a linear combination of the program variables plus a constant. If
 /// the program variables form a vector `x`, then the result of applying the affine transformation
@@ -230,8 +234,8 @@ pub trait NumericalDomain: AbstractDomain {
     /// # use rabbit::numerical::interval::*;
     /// let mut trans = HashMap::new();
     /// trans.insert(0, AffineTransform::zero(2));
-    /// let a = Interval::from_bounds(vec![-1., 1.], vec![1., 2.]);
-    /// let res = Interval::from_bounds(vec![0., 1.], vec![0., 2.]);
+    /// let a = Interval::from_doubles(vec![-1., 1.], vec![1., 2.], true);
+    /// let res = Interval::from_doubles(vec![0., 1.], vec![0., 2.], true);
     /// assert_eq!(a.assign(&trans), res);
     /// ```
     fn assign(&self, trans: &HashMap<usize, AffineTransform>) -> Self;
@@ -254,8 +258,8 @@ pub trait NumericalDomain: AbstractDomain {
     /// let a: Interval = AbstractDomain::top(2);
     /// let lc1 = LinearConstraint::from_coeffs(vec![0., 1.], 2.);
     /// let res1 = Interval::from_vec(
-    ///     vec![Itv::from_bounds(LowerBound::NegInf, UpperBound::PosInf),
-    ///          Itv::from_bounds(LowerBound::NegInf, UpperBound::Value(2.))]);
+    ///     vec![Itv::unbounded(),
+    ///          Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.))]);
     /// assert_eq!(a.constrain(vec![lc1].iter()), res1);
     /// let lc2 = LinearConstraint::from_coeffs(vec![0., 0.], -1.);
     /// assert!(a.constrain(vec![lc2].iter()).is_bottom());
@@ -284,8 +288,8 @@ pub trait NumericalDomain: AbstractDomain {
 ///               LinearConstraint::from_coeffs(vec![0., -1.], -3.)];
 /// let itv: Interval = from_lincons(2, lc.iter());
 /// let res = Interval::from_vec(
-///     vec![Itv::from_bounds(LowerBound::NegInf, UpperBound::Value(2.)),
-///          Itv::from_bounds(LowerBound::Value(3.), UpperBound::PosInf)]);
+///     vec![Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.)),
+///          Itv::from_bounds_closed(LowerBound::Value(3.), UpperBound::PosInf)]);
 /// assert_eq!(itv, res);
 /// ```
 pub fn from_lincons<'a, D, I>(dims: usize, cnts: I) -> D

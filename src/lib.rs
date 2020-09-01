@@ -42,8 +42,7 @@ pub trait AbstractDomain {
     /// # use rabbit::numerical::*;
     /// # use rabbit::numerical::interval::*;
     /// let b: Interval = AbstractDomain::bottom(1);
-    /// let a = Interval::from_vec(
-    ///     vec![ Itv::from_bounds(LowerBound::Value(1.), UpperBound::Value(0.))]);
+    /// let a = Interval::from_vec(vec![ Itv::empty() ]);
     /// assert_eq!(a, b);
     /// ```
     fn bottom(dims: usize) -> Self;
@@ -62,9 +61,9 @@ pub trait AbstractDomain {
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
     /// # use rabbit::numerical::interval::*;
-    /// let a = Interval::from_bounds(vec![0., 0.], vec![2., 2.]);
-    /// let b = Interval::from_bounds(vec![1., 0.], vec![1., 3.]);
-    /// assert_eq!(a.join(&b), Interval::from_bounds(vec![0., 0.], vec![2., 3.]));
+    /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
+    /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
+    /// assert_eq!(a.join(&b), Interval::from_doubles(vec![0., 0.], vec![2., 3.], true));
     /// ```
     fn join(&self, other: &Self) -> Self;
 
@@ -82,9 +81,9 @@ pub trait AbstractDomain {
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
     /// # use rabbit::numerical::interval::*;
-    /// let a = Interval::from_bounds(vec![0., 0.], vec![2., 2.]);
-    /// let b = Interval::from_bounds(vec![1., 0.], vec![1., 3.]);
-    /// assert_eq!(a.meet(&b), Interval::from_bounds(vec![1., 0.], vec![1., 2.]));
+    /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
+    /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
+    /// assert_eq!(a.meet(&b), Interval::from_doubles(vec![1., 0.], vec![1., 2.], true));
     /// ```
     fn meet(&self, other: &Self) -> Self;
 
@@ -131,16 +130,16 @@ pub trait AbstractDomain {
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
     /// # use rabbit::numerical::interval::*;
-    /// let a = Interval::from_bounds(vec![0.], vec![1.]);
+    /// let a = Interval::from_doubles(vec![0.], vec![1.], false);
     /// assert_eq!(a.add_dims(vec![0, 0]),
     ///     Interval::from_vec(
-    ///         vec![Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf },
-    ///              Itv { oower: LowerBound::NegInf, upper: UpperBound::PosInf },
-    ///              Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) }]));
+    ///         vec![Itv::unbounded(),
+    ///              Itv::unbounded(),
+    ///              Itv::from_double_open(0., 1.)]));
     /// assert_eq!(a.add_dims(vec![2]),
     ///     Interval::from_vec(
-    ///         Itv { lower: LowerBound::Value(0.), upper: UpperBound::Value(1.) },
-    ///         Itv { lower: LowerBound::NegInf, upper: UpperBound::PosInf }));
+    ///         vec![Itv::from_double_open(0., 1.),
+    ///              Itv::unbounded()]));
     /// ```
     fn add_dims<I>(&self, dims: I) -> Self
         where I: IntoIterator<Item = usize>;
@@ -159,8 +158,8 @@ pub trait AbstractDomain {
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
     /// # use rabbit::numerical::interval::*;
-    /// let a = Interval::from_bounds(vec![1., 0.], vec![1., 3.]);
-    /// assert_eq!(a.remove_dims(vec![0]), Interval::from_bounds(vec![0.], vec![3.]));
+    /// let a = Interval::from_doubles(vec![1., 0.], vec![1., 3.], false);
+    /// assert_eq!(a.remove_dims(vec![0]), Interval::from_doubles(vec![0.], vec![3.], false));
     /// ```
     fn remove_dims<I>(&self, dims: I) -> Self
     where
@@ -193,10 +192,10 @@ pub trait AbstractDomain {
 /// # use rabbit::*;
 /// # use rabbit::numerical::*;
 /// # use rabbit::numerical::interval::*;
-/// let a = Interval::from_bounds(vec![0., 0.], vec![2., 2.]);
-/// let b = Interval::from_bounds(vec![1., 0.], vec![1., 3.]);
-/// let c = Interval::from_bounds(vec![-1., 1.], vec![1., 3.]);
-/// let res = Interval::from_bounds(vec![-1., 0.], vec![2., 3.]);
+/// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
+/// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
+/// let c = Interval::from_doubles(vec![-1., 1.], vec![1., 3.], true);
+/// let res = Interval::from_doubles(vec![-1., 0.], vec![2., 3.], true);
 /// assert_eq!(join_all(2, vec![a, b, c].iter()), res);
 /// ```
 pub fn join_all<'a, D: 'a, I>(dims: usize, es: I) -> D
@@ -221,10 +220,10 @@ where
 /// # use rabbit::*;
 /// # use rabbit::numerical::*;
 /// # use rabbit::numerical::interval::*;
-/// let a = Interval::from_bounds(vec![0., 0.], vec![2., 2.]);
-/// let b = Interval::from_bounds(vec![1., 0.], vec![1., 3.]);
-/// let c = Interval::from_bounds(vec![-1., 1.], vec![1., 3.]);
-/// let res = Interval::from_bounds(vec![1., 1.], vec![1., 2.]);
+/// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
+/// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
+/// let c = Interval::from_doubles(vec![-1., 1.], vec![1., 3.], true);
+/// let res = Interval::from_doubles(vec![1., 1.], vec![1., 2.], true);
 /// assert_eq!(meet_all(2, vec![a, b, c].iter()), res);
 /// ```
 pub fn meet_all<'a, D: 'a, I>(dims: usize, es: I) -> D
