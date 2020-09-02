@@ -142,7 +142,8 @@ pub trait AbstractDomain {
     ///              Itv::unbounded()]));
     /// ```
     fn add_dims<I>(&self, dims: I) -> Self
-        where I: IntoIterator<Item = usize>;
+    where
+        I: IntoIterator<Item = usize>;
 
     /// Remove some set of variables from the constrained space. This is a projection onto the
     /// remaining dimensions.
