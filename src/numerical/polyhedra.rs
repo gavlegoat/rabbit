@@ -1,23 +1,16 @@
+use minilp::{ComparisonOp, OptimizationDirection, Problem};
 use nalgebra::{DMatrix, DVector, RowDVector};
+use replace_with::replace_with_or_abort;
 
-// Based on https://www.di.ens.fr/~cousot/COUSOTpapers/publications.www/CousotHalbwachs-POPL-78-ACM-p84--97-1978.pdf
+use crate::AbstractDomain;
+
+// Based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
 
 /// TODO
 pub struct Polyhedron {
     // Constraint representation: a x <= b
     a: DMatrix<f64>,
     b: DVector<f64>,
-    // Frame representation
-    vertices: Vec<DVector<f64>>,
-    rays: Vec<DVector<f64>>,
-    lines: Vec<DVector<f64>>,
-    // Keep track of which representation is current. This facilitates lazy conversion between the
-    // frame and constraint representations as needed. At least one of these two should always be
-    // true.
-    constraints_updated: bool,
-    frame_updated: bool,
-    // The number of dimensions in the constrained space.
-    dims: usize,
 }
 
 fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
@@ -28,7 +21,7 @@ fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
             cs.push(RowDVector::from(ri).remove_column(col));
             bs.push(b[i]);
         }
-        for (k, rj) in a.rows_range(i+1..).row_iter().enumerate() {
+        for (k, rj) in a.rows_range(i + 1..).row_iter().enumerate() {
             let j = k + i + 1;
             if ri[col] * rj[col] < 0. {
                 cs.push((rj[col].abs() * ri + ri[col].abs() * rj).remove_column(col));
@@ -41,139 +34,206 @@ fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
 }
 
 impl Polyhedron {
-    /// TODO: This doesn't actually need to be public.
-    pub fn generate_constraints(&mut self) {
-        if self.constraints_updated {
-            return;
-        }
-        self.constraints_updated = true;
-        if self.vertices.len() == 0 {
-            // This is an empty polytope
-            self.a = DMatrix::zeros(1, self.dims);
-            self.b = DVector::from_element(1, -1.);
-            return;
-        }
-        let mut a: DMatrix<f64> = DMatrix::from_fn(2 * self.dims, self.dims,
-            |i, j| if i == 2 * j { 1.0 } else if i == 2 * j + 1 { -1.0 } else { 0.0 });
-        let mut b: DVector<f64> = DVector::from_fn(2 * self.dims,
-            |i, _| if i % 2 == 0 { self.vertices[0][i/2] } else { -self.vertices[0][i/2] });
-        // Now the i'th pair of rows in a and b define constraints x_i <= v_i and -x_i <= -v_i.
-        for v in &self.vertices {
-            // Add constraints 0 <= lambda <= 1, convert the system to
-            // A x + lambda (A v - b) <= A v, then eliminate lambda.
-            a.extend(std::iter::once(&a * v - &b));
-            let i = a.nrows();
-            a = a.insert_rows(i, 2, 0.);
-            let rs = a.nrows();
-            let cs = a.ncols();
-            a[(rs - 2, cs - 1)] = 1.;
-            a[(rs - 1, cs - 1)] = -1.;
-            b = b.insert_rows(i, 2, 0.);
-            b[rs - 2] = 1.;
-            eliminate_column(&mut a, &mut b, cs - 1);
-        }
-        for r in &self.rays {
-            // Add constraints 0 <= mu, convert to A x - mu A r <= b, then eliminate mu.
-            a.extend(std::iter::once(- &a * r));
-            let i = a.nrows();
-            a = a.insert_row(i, 0.);
-            let rs = a.nrows();
-            let cs = a.ncols();
-            a[(rs - 1, cs - 1)] = -1.;
-            b = b.insert_row(i, 0.);
-            eliminate_column(&mut a, &mut b, cs - 1);
-        }
-        for d in &self.lines {
-            // Convert to A x - nu A d <= b then eliminate nu.
-            a.extend(std::iter::once(- &a * d));
-            let cs = a.ncols();
-            eliminate_column(&mut a, &mut b, cs - 1);
-        }
-
-        // Simplify the system of inequalities.
-        // We can remove any constraints which are not saturated for some vertex.
-        let mut to_remove: Vec<usize> = Vec::new();
-        for (i, (r, c)) in a.row_iter().zip(b.iter()).enumerate() {
-            let mut remove = true;
-            for v in &self.vertices {
-                if (r.dot(&v) - c).abs() < 1e-7 {
-                    remove = false;
-                    break;
-                }
-            }
-            if remove {
-                to_remove.push(i);
-            }
-        }
-        a = a.remove_rows_at(&to_remove);
-        b = b.remove_rows_at(&to_remove);
-        // For rows i, j, C_i <= C_j if for all vertices v, a_i s = b_i implies a_j s = b_j and for
-        // all rays r, a_i r = 0 implies a_j r = 0. Then if C_i <= C_j and not C_j <= C_i, we can
-        // remove C_i. If C_i <= C_j and C_j <= C_i, we can remove either one of C_i or C_j. We
-        // will look for pairs i, j satisfying either C_i <= C_j or C_j <= C_i and remove then as
-        // appropriate until we reach a fixed point.
+    fn minimize(&mut self) {
         loop {
-            let mut dim: Option<usize> = None;
-            for (i, ri) in a.row_iter().enumerate() {
-                for (j, rj) in a.row_iter().enumerate() {
+            let mut elim = false;
+            for (i, r) in self.a.row_iter().enumerate() {
+                let mut prob = Problem::new(OptimizationDirection::Maximize);
+                let mut vars = Vec::new();
+                for c in &r {
+                    vars.push(prob.add_var(*c, (f64::NEG_INFINITY, f64::INFINITY)));
+                }
+                for (j, s) in self.a.row_iter().enumerate() {
                     if i == j {
                         continue;
                     }
-                    // Determine whether C_i <= C_j or C_j <= C_i
-                    let mut i_lt_j = true;
-                    let mut j_lt_i = true;
-                    for v in &self.vertices {
-                        if rj.dot(v) == b[j] && ri.dot(v) != b[i] {
-                            i_lt_j = false;
-                        }
-                        if ri.dot(v) == b[i] && rj.dot(v) != b[j] {
-                            j_lt_i = false;
-                        }
-                        if !i_lt_j && !j_lt_i {
-                            break;
-                        }
-                    }
-                    for r in &self.rays {
-                        if rj.dot(r).abs() < 1e-7 && ri.dot(r).abs() < 1e-7 {
-                            i_lt_j = false;
-                            break;
-                        }
-                        if ri.dot(r).abs() < 1e-7 && rj.dot(r).abs() < 1e-7 {
-                            j_lt_i = false;
-                            break;
-                        }
-                        if !i_lt_j && !j_lt_i {
-                            break;
-                        }
-                    }
-                    if i_lt_j {
-                        dim = Some(i);
-                    } else if j_lt_i {
-                        dim = Some(j);
-                    }
+                    prob.add_constraint(
+                        vars.iter().cloned().zip(s.iter().cloned()),
+                        ComparisonOp::Le,
+                        self.b[j],
+                    );
                 }
-                if dim.is_some() {
+                let s = prob.solve();
+                if s.is_err() {
+                    continue;
+                }
+                if s.unwrap().objective() <= self.b[i] {
+                    elim = true;
+                    replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
                     break;
                 }
             }
-            if dim.is_none() {
+            if !elim {
                 break;
             }
-            a = a.remove_row(dim.unwrap());
-            b = b.remove_row(dim.unwrap());
         }
+    }
+}
 
-        self.a = a;
-        self.b = b;
+impl AbstractDomain for Polyhedron {
+    fn top(dims: usize) -> Polyhedron {
+        Polyhedron {
+            a: DMatrix::from_vec(0, dims, vec![]),
+            b: DVector::from_vec(vec![]),
+        }
     }
 
-    /// TODO: This doesn't actually need to be public.
-    pub fn generate_frame(&mut self) {
-        if self.frame_updated {
-            return;
+    fn bottom(dims: usize) -> Polyhedron {
+        Polyhedron {
+            a: DMatrix::from_vec(1, dims, vec![0.; dims]),
+            b: DVector::from_vec(vec![-1.]),
         }
-        self.frame_updated = true;
-        // TODO
+    }
+
+    fn join(&self, other: &Polyhedron) -> Polyhedron {
+        if self.dims() != other.dims() {
+            panic!("Mismatched dimensionality in Polyhedron::join");
+        }
+        // Introduce new variables s1, s2 in R, and y1, y2 in R^n and construct the system
+        // A y1 - s1 b <= 0 and A y2 - s2 b <= 0 and -s1 <= 0 and -s2 <= 0 and x - y1 - y2 = 0
+        // and s1 + s2 = 1, then project out y1, y2, s1, and s1. This yields the following system,
+        // from which we must project out columns Y1 - s2
+        //  X Y1 Y2 s1 s2  |  b
+        // --------------- | ---
+        //  0  A  0 -b  0  |  0
+        //  0  0  A  0 -b  |  0
+        //  0  0  0 -1  0  |  0
+        //  0  0  0  0 -1  |  0
+        //  I  I  I  0  0  |  0
+        // -I -I -I  0  0  |  0
+        //  0  0  0  1  1  |  1
+        //  0  0  0 -1 -1  | -1
+        let dims = self.a.ncols();
+        let cs = self.a.nrows();
+        let i = DMatrix::identity(dims, dims);
+        let neg_i = -1. * i.clone();
+        let neg_b = -1. * self.b.clone();
+        let mut a = DMatrix::from_element(2 * cs + 2 * dims + 4, 3 * dims + 2, 0.);
+        let mut b = DVector::from_element(2 * cs + 2 * dims + 4, 0.);
+        a.slice_mut((0, dims), (cs, dims))
+            .copy_from_slice(self.a.as_slice());
+        a.slice_mut((0, 3 * dims), (cs, 1))
+            .copy_from_slice(neg_b.as_slice());
+        a.slice_mut((cs, 2 * dims), (cs, dims))
+            .copy_from_slice(self.a.as_slice());
+        a.slice_mut((cs, 3 * dims + 2), (cs, 1))
+            .copy_from_slice(neg_b.as_slice());
+        a[(2 * cs, 3 * dims)] = -1.;
+        a[(2 * cs + 1, 3 * dims + 1)] = -1.;
+        a.slice_mut((2 * cs + 2, 0), (dims, dims))
+            .copy_from_slice(i.as_slice());
+        a.slice_mut((2 * cs + 2, dims), (dims, dims))
+            .copy_from_slice(i.as_slice());
+        a.slice_mut((2 * cs + 2, 2 * dims), (dims, dims))
+            .copy_from_slice(i.as_slice());
+        a.slice_mut((2 * cs + 2 + dims, 0), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a.slice_mut((2 * cs + 2 + dims, dims), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a.slice_mut((2 * cs + 2 + dims, 2 * dims), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a[(2 * cs + 2 + 2 * dims, 3 * dims)] = 1.;
+        a[(2 * cs + 2 + 2 * dims, 3 * dims + 1)] = 1.;
+        a[(2 * cs + 2 + 3 * dims, 3 * dims)] = -1.;
+        a[(2 * cs + 2 + 3 * dims, 3 * dims + 1)] = -1.;
+        b[2 * cs + 2 + 3 * dims] = 1.;
+        b[2 * cs + 3 + 3 * dims] = -1.;
+        for k in (dims..3 * dims + 2).rev() {
+            eliminate_column(&mut a, &mut b, k);
+        }
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        p
+    }
+
+    fn meet(&self, other: &Polyhedron) -> Polyhedron {
+        if self.dims() != other.dims() {
+            panic!("Mismatched dimensionality in Polyhedron::meet");
+        }
+        let mut a = self.a.clone();
+        a.resize_vertically_mut(other.a.nrows(), 0.);
+        a.slice_mut((self.a.nrows(), 0), (other.a.nrows(), other.a.ncols()))
+            .copy_from_slice(other.a.as_slice());
+        let b = DVector::from_iterator(
+            self.b.nrows() + other.b.nrows(),
+            self.b
+                .column(0)
+                .iter()
+                .cloned()
+                .chain(other.b.column(0).iter().cloned()),
+        );
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        p
+    }
+
+    fn is_top(&self) -> bool {
+        // If there are any constraints then this is not top.
+        self.a.nrows() == 0
+    }
+
+    fn is_bottom(&self) -> bool {
+        let mut prob = Problem::new(OptimizationDirection::Maximize);
+        let mut vars = Vec::new();
+        for _ in self.a.column_iter() {
+            vars.push(prob.add_var(1., (f64::NEG_INFINITY, f64::INFINITY)));
+        }
+        for (i, r) in self.a.row_iter().enumerate() {
+            prob.add_constraint(
+                vars.iter().cloned().zip(r.iter().cloned()),
+                ComparisonOp::Le,
+                self.b[i],
+            );
+        }
+        match prob.solve() {
+            Ok(_) => false,
+            Err(e) => match e {
+                minilp::Error::Infeasible => true,
+                _ => false,
+            },
+        }
+    }
+
+    fn remove_dims<I>(&self, dims: I) -> Polyhedron
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        let mut to_remove: Vec<usize> = dims.into_iter().collect();
+        to_remove.sort();
+        to_remove.reverse();
+        let mut a = self.a.clone();
+        let mut b = self.b.clone();
+        for d in to_remove {
+            eliminate_column(&mut a, &mut b, d);
+        }
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        p
+    }
+
+    fn add_dims<I>(&self, dims: I) -> Polyhedron
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        // To add an unconstrained variable, we simply add a new column of zeros so that it is not
+        // restricted by any existing constraint.
+        let mut to_add: Vec<usize> = dims.into_iter().collect();
+        to_add.sort();
+        for (i, d) in to_add.iter_mut().enumerate() {
+            *d += i;
+        }
+        let mut a = self.a.clone();
+        for d in to_add {
+            a = a.insert_column(d, 0.);
+        }
+        Polyhedron {
+            a,
+            b: self.b.clone(),
+        }
+    }
+
+    fn dims(&self) -> usize {
+        self.a.ncols()
     }
 }
 
@@ -184,11 +244,13 @@ mod test {
 
     #[test]
     fn test_eliminate() {
-        let mut a = DMatrix::<f64>::from_row_slice(5, 4, &vec![ 0.,  0.,  0., -1.,
-                                                                0.,  0.,  0.,  1.,
-                                                                0.,  0., -1.,  0.,
-                                                                1., -1.,  0., -2.,
-                                                               -1.,  1.,  0.,  4.]);
+        let mut a = DMatrix::<f64>::from_row_slice(
+            5,
+            4,
+            &vec![
+                0., 0., 0., -1., 0., 0., 0., 1., 0., 0., -1., 0., 1., -1., 0., -2., -1., 1., 0., 4.,
+            ],
+        );
         let mut b = DVector::<f64>::from_vec(vec![0., 1., 0., 0., 2.]);
         eliminate_column(&mut a, &mut b, 3);
         let x1 = DVector::<f64>::from_vec(vec![1., 1., 1.]);
@@ -200,5 +262,4 @@ mod test {
         assert!(!(&a * x3 <= b));
         assert!(!(&a * x4 <= b));
     }
-
 }

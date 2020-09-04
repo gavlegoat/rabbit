@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 nalgebra = "0.21.1"
+minilp = "0.2.2"
+replace_with = "0.1.7"
