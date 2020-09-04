@@ -99,7 +99,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::unbounded(),
     ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
@@ -116,7 +116,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::empty(),
     ///     Itv::from_bounds_closed(LowerBound::Value(3.), UpperBound::Value(1.)));
     /// ```
@@ -136,7 +136,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::precise(2.),
     ///     Itv::from_bounds_closed(LowerBound::Value(2.), UpperBound::Value(2.)));
     /// ```
@@ -157,7 +157,7 @@ impl Itv {
     ///
     /// Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 2.),
     ///     Itv::from_bounds_closed(LowerBound::Value(0.), UpperBound::Value(2.)));
     /// ```
@@ -178,7 +178,7 @@ impl Itv {
     ///
     /// Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_open(0., 2.),
     ///     Itv::from_bounds_open(LowerBound::Value(0.), UpperBound::Value(2.)));
     /// ```
@@ -199,7 +199,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::unbounded(),
     ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
@@ -226,7 +226,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::unbounded(),
     ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::PosInf));
     /// ```
@@ -249,7 +249,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 1.),
     ///     Itv::from_bounds(LowerBound::Value(0.), true, UpperBound::Value(1.), true));
     /// assert_eq!(Itv::from_double_open(0., 1.),
@@ -271,7 +271,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let a = Itv::from_double_closed(0., 2.);
     /// let b = Itv::from_double_closed(1., 4.);
     /// assert_eq!(a.add(&b), Itv::from_double_closed(1., 6.));
@@ -297,7 +297,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let a = Itv::from_double_closed(-1., 3.);
     /// assert_eq!(a.mult(2.), Itv::from_double_closed(-2., 6.));
     /// assert_eq!(a.mult(-2.), Itv::from_double_closed(-6., 2.));
@@ -348,7 +348,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 2.).join(&Itv::from_double_closed(1., 3.)),
     ///     Itv::from_double_closed(0., 3.));
     /// assert_eq!(Itv::from_double_closed(0., 1.).join(&Itv::from_double_closed(2., 3.)),
@@ -395,7 +395,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 2.).meet(&Itv::from_double_closed(1., 3.)),
     ///     Itv::from_double_closed(1., 2.));
     /// assert_eq!(Itv::unbounded().meet(&Itv::from_double_closed(0., 2.)),
@@ -439,7 +439,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert!(Itv::from_double_closed(1., 0.).is_empty());
     /// assert!(!Itv::unbounded().is_empty());
     /// ```
@@ -448,7 +448,7 @@ impl Itv {
             LowerBound::NegInf => false,
             LowerBound::Value(x) => match self.upper {
                 UpperBound::PosInf => false,
-                UpperBound::Value(y) => y < x || (y == x && !self.lower_incl && !self.upper_incl),
+                UpperBound::Value(y) => y < x || (y <= x && !self.lower_incl && !self.upper_incl),
             },
         }
     }
@@ -457,7 +457,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert!(Itv::unbounded().is_unbounded());
     /// assert!(!Itv::empty().is_unbounded());
     /// ```
@@ -475,7 +475,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 2.).remove_lower_bound(),
     ///     Itv::from_bounds_closed(LowerBound::NegInf, UpperBound::Value(2.)));
     /// ```
@@ -492,7 +492,7 @@ impl Itv {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// assert_eq!(Itv::from_double_closed(0., 2.).remove_upper_bound(),
     ///     Itv::from_bounds_closed(LowerBound::Value(0.), UpperBound::PosInf));
     /// ```
@@ -519,7 +519,7 @@ impl PartialEq for Itv {
     }
 }
 
-/// A hyperinterval.
+/// A hyperinterval over a Euclidean space.
 #[derive(Clone, Debug)]
 pub struct Interval {
     bounds: Vec<Itv>,
@@ -534,7 +534,7 @@ impl Interval {
     /// # Examples
     /// ```
     /// # use rabbit::AbstractDomain;
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let i = Interval::from_vec(vec![Itv::unbounded(); 3]);
     /// assert!(i.is_top());
     /// ```
@@ -554,7 +554,7 @@ impl Interval {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// ```
     pub fn from_doubles<I>(ls: I, us: I, closed: bool) -> Interval
@@ -593,7 +593,7 @@ impl Interval {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// i.update_dim(0, Itv::from_double_closed(1., 2.));
     /// assert_eq!(i, Interval::from_doubles(vec![1., -1.], vec![2., 2.], true));
@@ -615,7 +615,7 @@ impl Interval {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// i.remove_upper_bound(1);
     /// assert_eq!(i, Interval::from_vec(
@@ -639,7 +639,7 @@ impl Interval {
     ///
     /// # Examples
     /// ```
-    /// # use rabbit::numerical::interval::*;
+    /// # use rabbit::numerical::*;
     /// let mut i = Interval::from_doubles(vec![0., -1.], vec![1., 2.], true);
     /// i.remove_lower_bound(1);
     /// assert_eq!(i, Interval::from_vec(
@@ -785,11 +785,13 @@ impl NumericalDomain for Interval {
         ret
     }
 
-    fn constrain<'a, I>(&self, cnts: I) -> Interval
+    fn constrain<'a, I>(&self, cs: I) -> Interval
     where
-        I: Iterator<Item = &'a LinearConstraint> + Clone,
+        I: IntoIterator<Item = &'a LinearConstraint>,
+        I::IntoIter: Clone,
     {
         let mut ret = self.clone();
+        let cnts = cs.into_iter();
         for lc in cnts.clone() {
             if lc.dims() != self.bounds.len() {
                 panic!("Linear constraint has wrong dimenion in Interval::constrain");

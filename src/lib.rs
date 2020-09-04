@@ -24,7 +24,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let t: Interval = AbstractDomain::top(2);
     /// let a = Interval::from_vec(vec![ Itv::unbounded(), Itv::unbounded() ]);
     /// assert_eq!(t, a);
@@ -40,7 +39,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let b: Interval = AbstractDomain::bottom(1);
     /// let a = Interval::from_vec(vec![ Itv::empty() ]);
     /// assert_eq!(a, b);
@@ -60,7 +58,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
     /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
     /// assert_eq!(a.join(&b), Interval::from_doubles(vec![0., 0.], vec![2., 3.], true));
@@ -80,7 +77,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
     /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
     /// assert_eq!(a.meet(&b), Interval::from_doubles(vec![1., 0.], vec![1., 2.], true));
@@ -93,7 +89,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let t: Interval = AbstractDomain::top(3);
     /// let b: Interval = AbstractDomain::bottom(3);
     /// assert!(t.is_top());
@@ -107,7 +102,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let t: Interval = AbstractDomain::top(3);
     /// let b: Interval = AbstractDomain::bottom(3);
     /// assert!(b.is_bottom());
@@ -129,7 +123,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a = Interval::from_doubles(vec![0.], vec![1.], false);
     /// assert_eq!(a.add_dims(vec![0, 0]),
     ///     Interval::from_vec(
@@ -152,13 +145,12 @@ pub trait AbstractDomain {
     /// * `dims` - The set of dimensions to remove.
     ///
     /// # Panics
-    /// Panics if dims contains an element greater than the number of dimensions in `self`.
+    /// Panics if `dims` contains an element greater than the number of dimensions in `self`.
     ///
     /// # Examples
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a = Interval::from_doubles(vec![1., 0.], vec![1., 3.], false);
     /// assert_eq!(a.remove_dims(vec![0]), Interval::from_doubles(vec![0.], vec![3.], false));
     /// ```
@@ -172,7 +164,6 @@ pub trait AbstractDomain {
     /// ```
     /// # use rabbit::AbstractDomain;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a: Interval = AbstractDomain::top(4);
     /// assert_eq!(a.dims(), 4);
     /// ```
@@ -192,7 +183,6 @@ pub trait AbstractDomain {
 /// ```
 /// # use rabbit::*;
 /// # use rabbit::numerical::*;
-/// # use rabbit::numerical::interval::*;
 /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
 /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
 /// let c = Interval::from_doubles(vec![-1., 1.], vec![1., 3.], true);
@@ -202,9 +192,9 @@ pub trait AbstractDomain {
 pub fn join_all<'a, D: 'a, I>(dims: usize, es: I) -> D
 where
     D: AbstractDomain,
-    I: Iterator<Item = &'a D>,
+    I: IntoIterator<Item = &'a D>,
 {
-    es.fold(D::bottom(dims), |acc, x| acc.join(&x))
+    es.into_iter().fold(D::bottom(dims), |acc, x| acc.join(&x))
 }
 
 /// Meet a set of abstract elements.
@@ -220,7 +210,6 @@ where
 /// ```
 /// # use rabbit::*;
 /// # use rabbit::numerical::*;
-/// # use rabbit::numerical::interval::*;
 /// let a = Interval::from_doubles(vec![0., 0.], vec![2., 2.], true);
 /// let b = Interval::from_doubles(vec![1., 0.], vec![1., 3.], true);
 /// let c = Interval::from_doubles(vec![-1., 1.], vec![1., 3.], true);
@@ -230,7 +219,7 @@ where
 pub fn meet_all<'a, D: 'a, I>(dims: usize, es: I) -> D
 where
     D: AbstractDomain,
-    I: Iterator<Item = &'a D>,
+    I: IntoIterator<Item = &'a D>,
 {
-    es.fold(D::top(dims), |acc, x| acc.meet(&x))
+    es.into_iter().fold(D::top(dims), |acc, x| acc.meet(&x))
 }

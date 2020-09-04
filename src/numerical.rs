@@ -5,12 +5,44 @@
 //! constraints. Note that currently this module uses floating point numbers to represent reals and
 //! in general the components of this module are _not_ safe with respect to floating point errors.
 //! Therefore this module is _not_ ready to be used in safety-critical contexts.
+//!
+//! There are several predefined abstract domains which may be useful for analyzing numerical
+//! programs:
+//! * [`Interval`] keeps track of independent bounds on each program variable. This is very fast,
+//!   but it loses a lot of information when there are important relationships between program
+//!   variables. For example, intervals cannot encode the constraint `y <= x`.
+//! * [`Polyhedron`] keeps track of a convex set of linear inequalities between program variables.
+//!   That is, an arbitrary set of constraints of the form `c^T x <= b` are maintained where `c`
+//!   is a vector of real numbers, `b` is a real number, and `x` is a vector of program variables.
+//!   This is more precise than other abstract domains, but can be much slower in general.
+//!
+//! Regardles of the choice of abstract domain, most of the time it will be more convenient to work
+//! with the higher-level interface rather than generating elements of a particular domain
+//! directly.  Specifically, generating a specific abstract element for numerical domains should
+//! usually be done either by starting with top or bottom, or using the [`from_lincons`] function
+//! in [`rabbit::numerical`]. This allows you to easily switch to a different domain if you decide
+//! to.
+//! For example:
+//! ```
+//! use rabbit::numerical::*;
+//!
+//! // If we start with a constraint x0 + x1 <= 3
+//! let lc1 = LinearConstraint::from_coeffs(vec![1., 1.], 3.);
+//! let t: Interval = from_lincons(2, vec![lc1].iter());
+//! // Now perform your analysis using functions that can accept any numerical domain.
+//! // Later, if you decide you need more precision and want to switch to the polyhedra domain, you
+//! // can simply replace `Interval` above with `Polyhedron`.
+//! ```
+//! [`Interval`]: ./struct.Interval.html
+//! [`Polyhedron`]: ./struct.Polyhedron.html
+//! [`from_lincons`]: ./fn.from_lincons.html
+//! [`rabbit::numerical`]: ./index.html
 
 use crate::AbstractDomain;
 use std::collections::HashMap;
 
-pub use crate::numerical::interval::Interval;
-pub mod interval;
+pub use crate::numerical::interval::*;
+mod interval;
 
 pub use crate::numerical::polyhedra::Polyhedron;
 mod polyhedra;
@@ -231,7 +263,6 @@ pub trait NumericalDomain: AbstractDomain {
     /// ```
     /// # use std::collections::HashMap;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let mut trans = HashMap::new();
     /// trans.insert(0, AffineTransform::zero(2));
     /// let a = Interval::from_doubles(vec![-1., 1.], vec![1., 2.], true);
@@ -254,7 +285,6 @@ pub trait NumericalDomain: AbstractDomain {
     /// ```
     /// # use rabbit::*;
     /// # use rabbit::numerical::*;
-    /// # use rabbit::numerical::interval::*;
     /// let a: Interval = AbstractDomain::top(2);
     /// let lc1 = LinearConstraint::from_coeffs(vec![0., 1.], 2.);
     /// let res1 = Interval::from_vec(
@@ -266,7 +296,8 @@ pub trait NumericalDomain: AbstractDomain {
     /// ```
     fn constrain<'a, I>(&self, cnts: I) -> Self
     where
-        I: Iterator<Item = &'a LinearConstraint> + Clone;
+        I: IntoIterator<Item = &'a LinearConstraint>,
+        I::IntoIter: Clone;
 }
 
 /// Create a new element of a numerical domain from a given set of linear constraints. This is
@@ -283,7 +314,6 @@ pub trait NumericalDomain: AbstractDomain {
 ///
 /// ```
 /// # use rabbit::numerical::*;
-/// # use rabbit::numerical::interval::*;
 /// let lc = vec![LinearConstraint::from_coeffs(vec![1., 0.], 2.),
 ///               LinearConstraint::from_coeffs(vec![0., -1.], -3.)];
 /// let itv: Interval = from_lincons(2, lc.iter());

@@ -6,7 +6,7 @@ use crate::AbstractDomain;
 
 // Based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
 
-/// TODO
+/// A polyhedron, i.e., a set of linear constraints.
 pub struct Polyhedron {
     // Constraint representation: a x <= b
     a: DMatrix<f64>,
