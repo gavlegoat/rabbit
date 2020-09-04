@@ -1,7 +1,9 @@
 use minilp::{ComparisonOp, OptimizationDirection, Problem};
 use nalgebra::{DMatrix, DVector, RowDVector};
 use replace_with::replace_with_or_abort;
+use std::collections::HashMap;
 
+use crate::numerical::{AffineTransform, LinearConstraint, NumericalDomain};
 use crate::AbstractDomain;
 
 // Based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
@@ -234,6 +236,76 @@ impl AbstractDomain for Polyhedron {
 
     fn dims(&self) -> usize {
         self.a.ncols()
+    }
+}
+
+impl NumericalDomain for Polyhedron {
+    fn assign(&self, trans: &HashMap<usize, AffineTransform>) -> Polyhedron {
+        // A x <= b then x <- C x + d. We need to find A', b' such that
+        // A x <= b <-> A' (C x + d) <= b'.
+        //          <-> A' C x + A' d <= b'
+        //          <-> A' C x <= b' - A' d
+        // So we should have A = A' C and b = b' - A' d
+        // In general if C is not invertible this might be difficult, so we'll rely on existing
+        // tools instead. Specifically, for each transformation (c, d) we introduce a new variable
+        // e and add the constraint e = c^T x + d. Then we project out the old values of each
+        // variable to be eliminated and move e for each variable into the appropriate place.
+        let mut a = self.a.clone();
+        let mut b = self.b.clone();
+        // Keep a map from locations to the new variables which will be used to fill them.
+        let mut map: HashMap<usize, usize> = HashMap::new();
+        for (dim, at) in trans {
+            let n = a.nrows();
+            let c = a.ncols();
+            a = a.insert_rows(n, 2, 0.);
+            a.row_mut(n).copy_from_slice(&at.coeffs);
+            a.row_mut(n)
+                .component_mul_assign(&RowDVector::from_element(c, -1.));
+            a.row_mut(n + 1).copy_from_slice(&at.coeffs);
+            a = a.insert_column(c, 0.);
+            map.insert(*dim, c);
+            a[(n, c)] = 1.;
+            a[(n + 1, c)] = -1.;
+            b = b.insert_rows(n, 2, 0.);
+            b[n] = at.cst;
+            b[n + 1] = -at.cst;
+        }
+        // Project out the old variables
+        let mut ks: Vec<usize> = map.keys().cloned().collect();
+        ks.sort();
+        ks.reverse();
+        for k in ks {
+            eliminate_column(&mut a, &mut b, k);
+        }
+        let dims = self.dims();
+        // Swap the new columns back to where they're supposed to be.
+        for (i, (d, v)) in map.iter().enumerate() {
+            a = a.insert_column(*d, 0.);
+            a.swap_columns(*d, i + v - dims);
+            a = a.remove_column(i + v - dims);
+        }
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        p
+    }
+
+    fn constrain<'a, I>(&self, cnts: I) -> Polyhedron
+    where
+        I: IntoIterator<Item = &'a LinearConstraint>,
+        I::IntoIter: Clone,
+    {
+        let mut a = self.a.clone();
+        let mut b = self.b.clone();
+        for lc in cnts {
+            let n = a.nrows();
+            a = a.insert_row(n, 0.);
+            b = b.insert_row(n, 0.);
+            a.row_mut(n).copy_from_slice(&lc.coeffs);
+            b[n] = lc.cst;
+        }
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        p
     }
 }
 
