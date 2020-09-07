@@ -174,7 +174,6 @@ impl Polyhedron {
     // many operations on polyhedra can introduce new constraints that are already implied by
     // others, and these extra constraints can slow down analysis.
     fn minimize(&mut self) {
-        //println!("Beginning a, b: {} {}", self.a, self.b);
         loop {
             if self.a.nrows() <= 1 {
                 break;
@@ -185,21 +184,16 @@ impl Polyhedron {
             }
             let mut elim = false;
             for (i, r) in self.a.row_iter().enumerate() {
-                //println!("Candidate row: {}", i);
                 let mut prob = GLPProblem::new();
                 let mat = self.a.clone().remove_row(i);
                 let vec = self.b.clone().remove_row(i);
-                //println!("Constraint a, b: {} {}", mat, vec);
                 prob.load_matrix(&mat, &vec);
-                //println!("Objective: {} <= {}", r, self.b[i]);
                 // TODO: This can't be the best way to pass the row.
                 prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
                 let s = prob.solve();
-                //println!("{:?}", s);
                 match s {
                     GLPResult::Solved(v) => {
                         if v <= self.b[i] {
-                            //println!("Eliminated.");
                             elim = true;
                             replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
                             replace_with_or_abort(&mut self.b, |b| b.remove_row(i));
@@ -262,55 +256,69 @@ impl AbstractDomain for Polyhedron {
         if self.dims() != other.dims() {
             panic!("Mismatched dimensionality in Polyhedron::join");
         }
+        if self.is_top() || other.is_top() {
+            // Polyhedra with zero constraints seem to mess up the algorithm
+            return AbstractDomain::top(self.dims());
+        }
+        if self.is_bottom() {
+            return other.clone();
+        } else if other.is_bottom() {
+            return self.clone();
+        }
         // Introduce new variables s1, s2 in R, and y1, y2 in R^n and construct the system
-        // A y1 - s1 b <= 0 and A y2 - s2 b <= 0 and -s1 <= 0 and -s2 <= 0 and x - y1 - y2 = 0
+        // A1 y1 - s1 b1 <= 0 and A2 y2 - s2 b2 <= 0 and -s1 <= 0 and -s2 <= 0 and x - y1 - y2 = 0
         // and s1 + s2 = 1, then project out y1, y2, s1, and s1. This yields the following system,
         // from which we must project out columns Y1 - s2
         //  X Y1 Y2 s1 s2  |  b
         // --------------- | ---
-        //  0  A  0 -b  0  |  0
-        //  0  0  A  0 -b  |  0
+        //  0 A1  0 -b1 0  |  0
+        //  0  0 A2  0 -b2 |  0
         //  0  0  0 -1  0  |  0
         //  0  0  0  0 -1  |  0
-        //  I  I  I  0  0  |  0
-        // -I -I -I  0  0  |  0
+        //  I -I -I  0  0  |  0
+        // -I  I  I  0  0  |  0
         //  0  0  0  1  1  |  1
         //  0  0  0 -1 -1  | -1
+        //
+        // Total size: s_cs + o_cs + 2 + 2 * dims + 2
+
         let dims = self.a.ncols();
-        let cs = self.a.nrows();
+        let s_cs = self.a.nrows();
+        let o_cs = other.a.nrows();
         let i = DMatrix::identity(dims, dims);
         let neg_i = -1. * i.clone();
-        let neg_b = -1. * self.b.clone();
-        let mut a = DMatrix::from_element(2 * cs + 2 * dims + 4, 3 * dims + 2, 0.);
-        let mut b = DVector::from_element(2 * cs + 2 * dims + 4, 0.);
-        a.slice_mut((0, dims), (cs, dims))
+        let s_neg_b = -1. * self.b.clone();
+        let o_neg_b = -1. * other.b.clone();
+        let mut a = DMatrix::from_element(s_cs + o_cs + 2 * dims + 4, 3 * dims + 2, 0.);
+        let mut b = DVector::from_element(s_cs + o_cs + 2 * dims + 4, 0.);
+        a.slice_mut((0, dims), (s_cs, dims))
             .copy_from_slice(self.a.as_slice());
-        a.slice_mut((0, 3 * dims), (cs, 1))
-            .copy_from_slice(neg_b.as_slice());
-        a.slice_mut((cs, 2 * dims), (cs, dims))
-            .copy_from_slice(self.a.as_slice());
-        a.slice_mut((cs, 3 * dims + 1), (cs, 1))
-            .copy_from_slice(neg_b.as_slice());
-        a[(2 * cs, 3 * dims)] = -1.;
-        a[(2 * cs + 1, 3 * dims + 1)] = -1.;
-        a.slice_mut((2 * cs + 2, 0), (dims, dims))
+        a.slice_mut((0, 3 * dims), (s_cs, 1))
+            .copy_from_slice(s_neg_b.as_slice());
+        a.slice_mut((s_cs, 2 * dims), (o_cs, dims))
+            .copy_from_slice(other.a.as_slice());
+        a.slice_mut((s_cs, 3 * dims + 1), (o_cs, 1))
+            .copy_from_slice(o_neg_b.as_slice());
+        a[(s_cs + o_cs, 3 * dims)] = -1.;
+        a[(s_cs + o_cs + 1, 3 * dims + 1)] = -1.;
+        a.slice_mut((s_cs + o_cs + 2, 0), (dims, dims))
             .copy_from_slice(i.as_slice());
-        a.slice_mut((2 * cs + 2, dims), (dims, dims))
+        a.slice_mut((s_cs + o_cs + 2, dims), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a.slice_mut((s_cs + o_cs + 2, 2 * dims), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a.slice_mut((s_cs + o_cs + 2 + dims, 0), (dims, dims))
+            .copy_from_slice(neg_i.as_slice());
+        a.slice_mut((s_cs + o_cs + 2 + dims, dims), (dims, dims))
             .copy_from_slice(i.as_slice());
-        a.slice_mut((2 * cs + 2, 2 * dims), (dims, dims))
+        a.slice_mut((s_cs + o_cs + 2 + dims, 2 * dims), (dims, dims))
             .copy_from_slice(i.as_slice());
-        a.slice_mut((2 * cs + 2 + dims, 0), (dims, dims))
-            .copy_from_slice(neg_i.as_slice());
-        a.slice_mut((2 * cs + 2 + dims, dims), (dims, dims))
-            .copy_from_slice(neg_i.as_slice());
-        a.slice_mut((2 * cs + 2 + dims, 2 * dims), (dims, dims))
-            .copy_from_slice(neg_i.as_slice());
-        a[(2 * cs + 2 + 2 * dims, 3 * dims)] = 1.;
-        a[(2 * cs + 2 + 2 * dims, 3 * dims + 1)] = 1.;
-        a[(2 * cs + 2 + 2 * dims + 1, 3 * dims)] = -1.;
-        a[(2 * cs + 2 + 2 * dims + 1, 3 * dims + 1)] = -1.;
-        b[2 * cs + 2 + 2 * dims] = 1.;
-        b[2 * cs + 2 + 2 * dims + 1] = -1.;
+        a[(s_cs + o_cs + 2 + 2 * dims, 3 * dims)] = 1.;
+        a[(s_cs + o_cs + 2 + 2 * dims, 3 * dims + 1)] = 1.;
+        a[(s_cs + o_cs + 2 + 2 * dims + 1, 3 * dims)] = -1.;
+        a[(s_cs + o_cs + 2 + 2 * dims + 1, 3 * dims + 1)] = -1.;
+        b[s_cs + o_cs + 2 + 2 * dims] = 1.;
+        b[s_cs + o_cs + 2 + 2 * dims + 1] = -1.;
         for k in (dims..3 * dims + 2).rev() {
             eliminate_column(&mut a, &mut b, k);
         }
@@ -324,7 +332,7 @@ impl AbstractDomain for Polyhedron {
             panic!("Mismatched dimensionality in Polyhedron::meet");
         }
         let mut a = self.a.clone();
-        a.resize_vertically_mut(other.a.nrows(), 0.);
+        a.resize_vertically_mut(self.a.nrows() + other.a.nrows(), 0.);
         a.slice_mut((self.a.nrows(), 0), (other.a.nrows(), other.a.ncols()))
             .copy_from_slice(other.a.as_slice());
         let b = DVector::from_iterator(
@@ -352,7 +360,7 @@ impl AbstractDomain for Polyhedron {
             }
         }
         for v in self.b.iter() {
-            if *v <= 0. {
+            if *v < 0. {
                 return false;
             }
         }
@@ -433,14 +441,21 @@ impl NumericalDomain for Polyhedron {
         let mut b = self.b.clone();
         // Keep a map from locations to the new variables which will be used to fill them.
         let mut map: HashMap<usize, usize> = HashMap::new();
+        let dims = self.dims();
         for (dim, at) in trans {
+            if at.coeffs.len() != self.dims() {
+                panic!("Mismatched dimensionality in Polyhedron::assign");
+            }
+            if *dim >= self.dims() {
+                panic!("Dimension too high in Polyhedron::assign");
+            }
             let n = a.nrows();
             let c = a.ncols();
             a = a.insert_rows(n, 2, 0.);
-            a.row_mut(n).copy_from_slice(&at.coeffs);
+            a.row_part_mut(n, dims).copy_from_slice(&at.coeffs);
             a.row_mut(n)
                 .component_mul_assign(&RowDVector::from_element(c, -1.));
-            a.row_mut(n + 1).copy_from_slice(&at.coeffs);
+            a.row_part_mut(n + 1, dims).copy_from_slice(&at.coeffs);
             a = a.insert_column(c, 0.);
             map.insert(*dim, c);
             a[(n, c)] = 1.;
@@ -453,16 +468,20 @@ impl NumericalDomain for Polyhedron {
         let mut ks: Vec<usize> = map.keys().cloned().collect();
         ks.sort();
         ks.reverse();
-        for k in ks {
-            eliminate_column(&mut a, &mut b, k);
+        let mut removed = 0;
+        println!("Constraints with new variables: {} {}", a, b);
+        for k in &ks {
+            eliminate_column(&mut a, &mut b, *k);
+            removed += 1;
         }
-        let dims = self.dims();
+        println!("Constraints after elimination: {} {}", a, b);
         // Swap the new columns back to where they're supposed to be.
-        for (i, (d, v)) in map.iter().enumerate() {
-            a = a.insert_column(*d, 0.);
-            a.swap_columns(*d, i + v - dims);
-            a = a.remove_column(i + v - dims);
+        for d in ks {
+            a = a.insert_column(d, 0.);
+            a.swap_columns(d, map[&d] - removed);
+            a = a.remove_column(map[&d] - removed);
         }
+        println!("Constraints after swapping: {} {}", a, b);
         let mut p = Polyhedron { a, b };
         p.minimize();
         p
@@ -492,8 +511,8 @@ impl NumericalDomain for Polyhedron {
 mod test {
 
     use super::*;
-    use crate::AbstractDomain;
     use crate::numerical::*;
+    use crate::AbstractDomain;
 
     #[test]
     fn test_eliminate() {
@@ -574,68 +593,106 @@ mod test {
     fn test_from_lincons() {
         let a: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 3.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+            ],
+        );
         let b: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![2., 0.], 6.),
-                  LinearConstraint::from_coeffs(vec![0., 3.], 6.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![2., 0.], 6.),
+                LinearConstraint::from_coeffs(vec![0., 3.], 6.),
+            ],
+        );
         assert_eq!(a, b);
-        let t: Polyhedron = from_lincons(
-            2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 0.], 1.)]
-            );
+        let t: Polyhedron = from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![0., 0.], 1.)]);
         assert!(t.is_top());
         assert_eq!(t, AbstractDomain::top(2));
-        let b: Polyhedron = from_lincons(
-            2, &vec![LinearConstraint::from_coeffs(vec![0., 0.], -3.)]);
+        let b: Polyhedron =
+            from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![0., 0.], -3.)]);
         assert!(b.is_bottom());
         assert_eq!(b, AbstractDomain::bottom(2));
     }
 
     #[test]
-    fn join_normal() {
+    fn join_bounded() {
         let a: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
-                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
-                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 0.),
+            ],
+        );
         let b: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 4.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 1.),
-                  LinearConstraint::from_coeffs(vec![0., -1.], 2.),
-                  LinearConstraint::from_coeffs(vec![-1., 0.], 3.)
-            ]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
         // (0, 0), (3, 0), (0, 2), (3, 2) join (-3, -2), (-3, 4), (1, -2), (1, 4)
         //   -3-2-1 0 1 2 3
         //  4 +-------+ . .
-        //  3 | . . . . \ .
-        //  2 | . . + . . +
-        //  1 | . . . . . |
-        //  0 | . . + . . +
-        // -1 | . . . . / .
+        //  3 | . . . | . .
+        //  2 | . . +-----+
+        //  1 | . . | | . |
+        //  0 | . . +-----+
+        // -1 | . . . | . .
         // -2 +-------+ . .
         let c: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
-                  LinearConstraint::from_coeffs(vec![0., -1.], 2.),
-                  LinearConstraint::from_coeffs(vec![0., 1.], 4.),
-                  LinearConstraint::from_coeffs(vec![1., 1.], 5.),
-                  LinearConstraint::from_coeffs(vec![1., -1.], 3.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 1.], 5.),
+                LinearConstraint::from_coeffs(vec![1., -1.], 3.),
+            ],
+        );
         assert_eq!(a.join(&b), c);
+    }
+
+    #[test]
+    fn join_open() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+            ],
+        );
+        let b: Polyhedron = from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![1., 1.], 0.)]);
+        let c: Polyhedron = from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![1., 1.], 5.)]);
+        assert_eq!(a.join(&b), c);
+        let d: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 0.),
+            ],
+        );
+        assert!(a.join(&d).is_top());
+        let e: Polyhedron = from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![1., 1.], 6.)]);
+        assert_eq!(a.join(&e), e);
     }
 
     #[test]
     fn join_top() {
         let a: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
-                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
-                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 0.),
+            ],
+        );
         let t: Polyhedron = AbstractDomain::top(2);
         assert!(a.join(&t).is_top());
         assert_eq!(t.join(&a), t);
@@ -645,13 +702,197 @@ mod test {
     fn join_bottom() {
         let a: Polyhedron = from_lincons(
             2,
-            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
-                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
-                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
-                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 0.),
+            ],
+        );
         let b: Polyhedron = AbstractDomain::bottom(2);
         assert_eq!(a.join(&b), a);
     }
 
-    // TODO: Test meet, remove_vars, assign, constrain
+    #[test]
+    fn meet_normal() {
+        let a: Polyhedron =
+            from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![1., 1.], -1.)]);
+        let b: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let c: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![1., 1.], -1.),
+            ],
+        );
+        assert_eq!(a.meet(&b), c);
+    }
+
+    #[test]
+    fn meet_top() {
+        let b: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let t: Polyhedron = AbstractDomain::top(2);
+        assert_eq!(b.meet(&t), b);
+    }
+
+    #[test]
+    fn meet_bottom() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let b: Polyhedron = AbstractDomain::bottom(2);
+        assert!(b.meet(&a).is_bottom());
+    }
+
+    #[test]
+    fn remove_vars() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let b: Polyhedron = from_lincons(
+            1,
+            &vec![
+                LinearConstraint::from_coeffs(vec![1.], 1.),
+                LinearConstraint::from_coeffs(vec![-1.], 3.),
+            ],
+        );
+        assert_eq!(a.remove_dims(vec![1]), b);
+        let c: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![1., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., -1.], 2.),
+            ],
+        );
+        let d: Polyhedron = from_lincons(
+            1,
+            &vec![
+                LinearConstraint::from_coeffs(vec![1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1.], 2.),
+            ],
+        );
+        assert_eq!(c.remove_dims(vec![0]), d);
+    }
+
+    #[test]
+    fn assign() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let mut tr: HashMap<usize, AffineTransform> = HashMap::new();
+        tr.insert(1, AffineTransform::from_coeffs(vec![1., 1.], 0.));
+        let b: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![1., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 1.], 4.),
+            ],
+        );
+        assert_eq!(a.assign(&tr), b);
+        tr.insert(0, AffineTransform::from_coeffs(vec![1., -1.], 0.));
+        // -3 <= x <= 1, -2 <= y <= 4. Then we assign
+        // x := x - y and y := x + y  in parallel
+        // The bounding box is now -7 <= x <= 3, -5 <= y <= 5. Then we get vertices
+        // (-7, 1), (3, -1), (-1, -5), and (-3, 5)
+        let m: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![1., 1.], 2.),
+                LinearConstraint::from_coeffs(vec![1., -1.], 4.),
+                LinearConstraint::from_coeffs(vec![-1., 1.], 8.),
+                LinearConstraint::from_coeffs(vec![-1., -1.], 6.),
+            ],
+        );
+        assert_eq!(a.assign(&tr), m);
+    }
+
+    #[test]
+    fn constrain_normal() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let lc = LinearConstraint::from_coeffs(vec![1., 1.], -1.);
+        let c: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+                LinearConstraint::from_coeffs(vec![1., 1.], -1.),
+            ],
+        );
+        assert_eq!(a.constrain(&vec![lc]), c);
+    }
+
+    #[test]
+    fn constrain_unsat() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![
+                LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+            ],
+        );
+        let lc = LinearConstraint::from_coeffs(vec![0., 0.], -1.);
+        assert!(a.constrain(&vec![lc]).is_bottom());
+    }
+
+    #[test]
+    fn constrain_top() {
+        let t: Polyhedron = AbstractDomain::top(2);
+        let lc = LinearConstraint::from_coeffs(vec![1., 1.], -1.);
+        let b: Polyhedron =
+            from_lincons(2, &vec![LinearConstraint::from_coeffs(vec![1., 1.], -1.)]);
+        assert_eq!(t.constrain(&vec![lc]), b);
+    }
 }
