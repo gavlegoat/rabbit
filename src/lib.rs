@@ -13,6 +13,9 @@
 
 pub mod numerical;
 
+pub use crate::disjunctive::{reduce_disjunction, Disjunction};
+mod disjunctive;
+
 /// Defines all of the basic functionality needed to perform abstract interpretation.
 pub trait AbstractDomain {
     /// Create a new top element. The top element includes every possible value.
