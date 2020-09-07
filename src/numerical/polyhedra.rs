@@ -1,19 +1,140 @@
-use minilp::{ComparisonOp, OptimizationDirection, Problem};
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+
 use nalgebra::{DMatrix, DVector, RowDVector};
 use replace_with::replace_with_or_abort;
 use std::collections::HashMap;
+use std::mem::MaybeUninit;
+use std::os::raw::{c_double, c_int};
 
 use crate::numerical::{AffineTransform, LinearConstraint, NumericalDomain};
 use crate::AbstractDomain;
 
+// Include generated bindings for GLPK and add a safe interface.
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+struct GLPProblem {
+    prob: *mut glp_prob,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+enum GLPStatus {
+    Infeasible,
+    Unbounded,
+    Unsolved,
+}
+
+impl GLPProblem {
+    fn new() -> GLPProblem {
+        GLPProblem {
+            prob: unsafe { glp_create_prob() },
+        }
+    }
+
+    fn load_matrix(&mut self, mat: &DMatrix<f64>, vec: &DVector<f64>) {
+        println!("{} {}", mat, vec);
+        let nr = mat.nrows();
+        let nc = mat.ncols();
+        unsafe {
+            glp_add_rows(self.prob, nr as c_int);
+            glp_add_cols(self.prob, nc as c_int);
+        }
+        let mut ia: Vec<c_int> = vec![0];
+        let mut ja: Vec<c_int> = vec![0];
+        let mut ar: Vec<c_double> = vec![0.];
+        for (j, c) in mat.column_iter().enumerate() {
+            for (i, v) in c.iter().enumerate() {
+                ia.push((i + 1) as c_int);
+                ja.push((j + 1) as c_int);
+                ar.push(*v);
+            }
+        }
+        let ne = (ar.len() - 1) as c_int;
+        println!("{:?}", ia);
+        println!("{:?}", ja);
+        println!("{:?}", ar);
+        println!("{}", ne);
+        unsafe {
+            glp_load_matrix(self.prob, ne, ia.as_ptr(), ja.as_ptr(), ar.as_ptr());
+            for (i, v) in vec.iter().enumerate() {
+                glp_set_row_bnds(
+                    self.prob,
+                    (i + 1) as c_int,
+                    GLP_UP as c_int,
+                    0. as c_double,
+                    *v as c_double,
+                );
+            }
+        }
+    }
+
+    fn set_objective(&mut self, vec: &[f64], cst: f64) {
+        unsafe {
+            glp_set_obj_coef(self.prob, 0 as c_int, cst as c_double);
+            for (i, v) in vec.iter().enumerate() {
+                glp_set_obj_coef(self.prob, (i + 1) as c_int, *v as c_double);
+            }
+            glp_set_obj_dir(self.prob, GLP_MAX as c_int);
+        }
+    }
+
+    fn solve(&mut self) -> Result<f64, GLPStatus> {
+        unsafe {
+            let mut params = {
+                let mut x = MaybeUninit::uninit();
+                glp_init_smcp(x.as_mut_ptr());
+                x.assume_init()
+            };
+            params.msg_lev = GLP_MSG_OFF as c_int;
+            let simplex_res = glp_simplex(self.prob, &params);
+            if simplex_res != 0 {
+                return Err(GLPStatus::Unsolved);
+            }
+            let solve_res = glp_get_status(self.prob) as u32;
+            if solve_res == GLP_NOFEAS {
+                Err(GLPStatus::Infeasible)
+            } else if solve_res == GLP_UNBND {
+                Err(GLPStatus::Unbounded)
+            } else if solve_res == GLP_OPT {
+                let ret = glp_get_obj_val(self.prob);
+                Ok(ret as f64)
+            } else {
+                println!("solve_res: {}", solve_res);
+                Err(GLPStatus::Unsolved)
+            }
+        }
+    }
+}
+
+impl Drop for GLPProblem {
+    fn drop(&mut self) {
+        unsafe {
+            glp_delete_prob(self.prob);
+        }
+    }
+}
+
 // Based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
 
 /// A polyhedron, i.e., a set of linear constraints.
+#[derive(Clone, Debug)]
 pub struct Polyhedron {
     // Constraint representation: a x <= b
     a: DMatrix<f64>,
     b: DVector<f64>,
 }
+
+impl PartialEq for Polyhedron {
+    fn eq(&self, other: &Polyhedron) -> bool {
+        if self.dims() != other.dims() {
+            return false;
+        }
+        self.includes(other) && other.includes(self)
+    }
+}
+
+impl Eq for Polyhedron {}
 
 fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
     let mut cs: Vec<RowDVector<f64>> = Vec::new();
@@ -38,37 +159,58 @@ fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
 impl Polyhedron {
     fn minimize(&mut self) {
         loop {
+            if self.a.nrows() == 0 {
+                break;
+            }
             let mut elim = false;
             for (i, r) in self.a.row_iter().enumerate() {
-                let mut prob = Problem::new(OptimizationDirection::Maximize);
-                let mut vars = Vec::new();
-                for c in &r {
-                    vars.push(prob.add_var(*c, (f64::NEG_INFINITY, f64::INFINITY)));
-                }
-                for (j, s) in self.a.row_iter().enumerate() {
-                    if i == j {
-                        continue;
-                    }
-                    prob.add_constraint(
-                        vars.iter().cloned().zip(s.iter().cloned()),
-                        ComparisonOp::Le,
-                        self.b[j],
-                    );
-                }
+                let mut prob = GLPProblem::new();
+                let mat = self.a.clone().remove_row(i);
+                let vec = self.b.clone().remove_row(i);
+                prob.load_matrix(&mat, &vec);
+                // TODO: This can't be the best way to pass the row.
+                prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
                 let s = prob.solve();
-                if s.is_err() {
-                    continue;
-                }
-                if s.unwrap().objective() <= self.b[i] {
-                    elim = true;
-                    replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
-                    break;
-                }
+                match s {
+                    Err(_) => continue,
+                    Ok(_) => {
+                        elim = true;
+                        replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
+                        replace_with_or_abort(&mut self.b, |b| b.remove_row(i));
+                        break;
+                    }
+                };
             }
             if !elim {
                 break;
             }
         }
+    }
+
+    fn includes(&self, other: &Polyhedron) -> bool {
+        if self.a.nrows() == 0 {
+            // This polyhedron is top, so it includes everything.
+            return true;
+        } else if other.a.nrows() == 0 {
+            // Other is top and this isn't
+            return false;
+        }
+        for (i, r) in self.a.row_iter().enumerate() {
+            let mut prob = GLPProblem::new();
+            prob.load_matrix(&other.a, &other.b);
+            // TODO: This can't be the best way to pass the row.
+            prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
+            let s = prob.solve();
+            match s {
+                Err(_) => return false,
+                Ok(v) => {
+                    if v > self.b[i] {
+                        return false;
+                    }
+                }
+            };
+        }
+        true
     }
 }
 
@@ -175,22 +317,19 @@ impl AbstractDomain for Polyhedron {
     }
 
     fn is_bottom(&self) -> bool {
-        let mut prob = Problem::new(OptimizationDirection::Maximize);
-        let mut vars = Vec::new();
-        for _ in self.a.column_iter() {
-            vars.push(prob.add_var(1., (f64::NEG_INFINITY, f64::INFINITY)));
+        if self.a.nrows() == 0 {
+            // This is top.
+            return false;
         }
-        for (i, r) in self.a.row_iter().enumerate() {
-            prob.add_constraint(
-                vars.iter().cloned().zip(r.iter().cloned()),
-                ComparisonOp::Le,
-                self.b[i],
-            );
-        }
-        match prob.solve() {
+        let mut prob = GLPProblem::new();
+        prob.load_matrix(&self.a, &self.b);
+        prob.set_objective(&vec![1.; self.a.ncols()], 0.);
+        let sol = prob.solve();
+        println!("{:?}", sol);
+        match sol {
             Ok(_) => false,
             Err(e) => match e {
-                minilp::Error::Infeasible => true,
+                GLPStatus::Infeasible => true,
                 _ => false,
             },
         }
@@ -226,7 +365,8 @@ impl AbstractDomain for Polyhedron {
         }
         let mut a = self.a.clone();
         for d in to_add {
-            a = a.insert_column(d, 0.);
+            let t = if d > a.ncols() { a.ncols() } else { d };
+            a = a.insert_column(t, 0.);
         }
         Polyhedron {
             a,
@@ -333,5 +473,59 @@ mod test {
         assert!(!(&a * x2 <= b));
         assert!(!(&a * x3 <= b));
         assert!(!(&a * x4 <= b));
+    }
+
+    #[test]
+    fn test_top_bottom() {
+        let pt: Polyhedron = AbstractDomain::top(3);
+        let pb: Polyhedron = AbstractDomain::bottom(3);
+        assert!(pt.is_top());
+        assert!(!pb.is_top());
+        assert!(pb.is_bottom());
+        assert!(!pt.is_bottom());
+    }
+
+    #[test]
+    fn minimize() {
+        let a = DMatrix::from_vec(3, 2, vec![1., 0., 0., 1., 2., 0.]);
+        let b = DVector::from_vec(vec![2., 2., 2.]);
+        let mut p = Polyhedron { a, b };
+        p.minimize();
+        assert_eq!(p.a.nrows(), 2);
+    }
+
+    #[test]
+    fn test_eq() {
+        let a = DMatrix::from_vec(3, 2, vec![1., 0., 0., 1., 2., 0.]);
+        let b = DVector::from_vec(vec![2., 2., 2.]);
+        let mut p = Polyhedron { a, b };
+        let p1 = p.clone();
+        p.minimize();
+        assert_eq!(p, p1);
+    }
+
+    #[test]
+    fn test_dims() {
+        let a: Polyhedron = AbstractDomain::top(4);
+        assert_eq!(a.dims(), 4);
+        let b: Polyhedron = AbstractDomain::bottom(2);
+        assert_eq!(b.dims(), 2);
+    }
+
+    #[test]
+    fn test_add_dims() {
+        let a: Polyhedron = AbstractDomain::top(4);
+        let b: Polyhedron = AbstractDomain::top(3);
+        let c = Polyhedron {
+            a: DMatrix::from_vec(1, 2, vec![1., 1.]),
+            b: DVector::from_vec(vec![2.]),
+        };
+        let d = Polyhedron {
+            a: DMatrix::from_vec(1, 4, vec![0., 1., 1., 0.]),
+            b: DVector::from_vec(vec![2.]),
+        };
+        assert_eq!(b.add_dims(vec![0]).dims(), 4);
+        assert_eq!(b.add_dims(vec![4]), a);
+        assert_eq!(c.add_dims(vec![0, 3]), d);
     }
 }
