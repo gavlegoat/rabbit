@@ -324,7 +324,8 @@ pub trait NumericalDomain: AbstractDomain {
 /// ```
 pub fn from_lincons<'a, D, I>(dims: usize, cnts: I) -> D
 where
-    I: Iterator<Item = &'a LinearConstraint> + Clone,
+    I: IntoIterator<Item = &'a LinearConstraint> + Clone,
+    I::IntoIter: Clone,
     D: NumericalDomain,
 {
     D::top(dims).constrain(cnts)

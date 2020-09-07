@@ -142,7 +142,7 @@ impl PartialEq for Polyhedron {
         if self.dims() != other.dims() {
             return false;
         }
-        self.includes(other) && other.includes(self)
+        (self.is_bottom() && other.is_bottom()) || (self.includes(other) && other.includes(self))
     }
 }
 
@@ -174,28 +174,32 @@ impl Polyhedron {
     // many operations on polyhedra can introduce new constraints that are already implied by
     // others, and these extra constraints can slow down analysis.
     fn minimize(&mut self) {
-        println!("Beginning a, b: {} {}", self.a, self.b);
+        //println!("Beginning a, b: {} {}", self.a, self.b);
         loop {
             if self.a.nrows() <= 1 {
+                break;
+            } else if self.is_top() {
+                replace_with_or_abort(&mut self.a, |a| DMatrix::zeros(0, a.ncols()));
+                replace_with_or_abort(&mut self.b, |_| DVector::zeros(0));
                 break;
             }
             let mut elim = false;
             for (i, r) in self.a.row_iter().enumerate() {
-                println!("Candidate row: {}", i);
+                //println!("Candidate row: {}", i);
                 let mut prob = GLPProblem::new();
                 let mat = self.a.clone().remove_row(i);
                 let vec = self.b.clone().remove_row(i);
-                println!("Constraint a, b: {} {}", mat, vec);
+                //println!("Constraint a, b: {} {}", mat, vec);
                 prob.load_matrix(&mat, &vec);
-                println!("Objective: {} <= {}", r, self.b[i]);
+                //println!("Objective: {} <= {}", r, self.b[i]);
                 // TODO: This can't be the best way to pass the row.
                 prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
                 let s = prob.solve();
-                println!("{:?}", s);
+                //println!("{:?}", s);
                 match s {
                     GLPResult::Solved(v) => {
                         if v <= self.b[i] {
-                            println!("Eliminated.");
+                            //println!("Eliminated.");
                             elim = true;
                             replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
                             replace_with_or_abort(&mut self.b, |b| b.remove_row(i));
@@ -214,10 +218,9 @@ impl Polyhedron {
     // Determine whether this polyhedron includes anothe by checking whether all of the constraints
     // of this polyhedron are implied by other.
     fn includes(&self, other: &Polyhedron) -> bool {
-        if self.a.nrows() == 0 {
-            // This polyhedron is top, so it includes everything.
+        if self.is_top() {
             return true;
-        } else if other.a.nrows() == 0 {
+        } else if other.is_top() {
             // Other is top and this isn't
             return false;
         }
@@ -286,7 +289,7 @@ impl AbstractDomain for Polyhedron {
             .copy_from_slice(neg_b.as_slice());
         a.slice_mut((cs, 2 * dims), (cs, dims))
             .copy_from_slice(self.a.as_slice());
-        a.slice_mut((cs, 3 * dims + 2), (cs, 1))
+        a.slice_mut((cs, 3 * dims + 1), (cs, 1))
             .copy_from_slice(neg_b.as_slice());
         a[(2 * cs, 3 * dims)] = -1.;
         a[(2 * cs + 1, 3 * dims + 1)] = -1.;
@@ -304,10 +307,10 @@ impl AbstractDomain for Polyhedron {
             .copy_from_slice(neg_i.as_slice());
         a[(2 * cs + 2 + 2 * dims, 3 * dims)] = 1.;
         a[(2 * cs + 2 + 2 * dims, 3 * dims + 1)] = 1.;
-        a[(2 * cs + 2 + 3 * dims, 3 * dims)] = -1.;
-        a[(2 * cs + 2 + 3 * dims, 3 * dims + 1)] = -1.;
-        b[2 * cs + 2 + 3 * dims] = 1.;
-        b[2 * cs + 3 + 3 * dims] = -1.;
+        a[(2 * cs + 2 + 2 * dims + 1, 3 * dims)] = -1.;
+        a[(2 * cs + 2 + 2 * dims + 1, 3 * dims + 1)] = -1.;
+        b[2 * cs + 2 + 2 * dims] = 1.;
+        b[2 * cs + 2 + 2 * dims + 1] = -1.;
         for k in (dims..3 * dims + 2).rev() {
             eliminate_column(&mut a, &mut b, k);
         }
@@ -338,8 +341,22 @@ impl AbstractDomain for Polyhedron {
     }
 
     fn is_top(&self) -> bool {
-        // If there are any constraints then this is not top.
-        self.a.nrows() == 0
+        if self.a.nrows() == 0 {
+            return true;
+        }
+        // This polyhedron can still be top if each coefficient in the constraint matrix is zero
+        // and each element of the constraint vector is non-negative
+        for v in self.a.iter() {
+            if *v != 0. {
+                return false;
+            }
+        }
+        for v in self.b.iter() {
+            if *v <= 0. {
+                return false;
+            }
+        }
+        true
     }
 
     fn is_bottom(&self) -> bool {
@@ -475,6 +492,8 @@ impl NumericalDomain for Polyhedron {
 mod test {
 
     use super::*;
+    use crate::AbstractDomain;
+    use crate::numerical::*;
 
     #[test]
     fn test_eliminate() {
@@ -527,7 +546,7 @@ mod test {
     }
 
     #[test]
-    fn test_dims() {
+    fn dims() {
         let a: Polyhedron = AbstractDomain::top(4);
         assert_eq!(a.dims(), 4);
         let b: Polyhedron = AbstractDomain::bottom(2);
@@ -535,7 +554,7 @@ mod test {
     }
 
     #[test]
-    fn test_add_dims() {
+    fn add_dims() {
         let a: Polyhedron = AbstractDomain::top(4);
         let b: Polyhedron = AbstractDomain::top(3);
         let c = Polyhedron {
@@ -551,5 +570,88 @@ mod test {
         assert_eq!(c.add_dims(vec![0, 3]), d);
     }
 
-    // TODO: Test meet, join, remove_vars, assign, constrain
+    #[test]
+    fn test_from_lincons() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 3.)]);
+        let b: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![2., 0.], 6.),
+                  LinearConstraint::from_coeffs(vec![0., 3.], 6.)]);
+        assert_eq!(a, b);
+        let t: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 0.], 1.)]
+            );
+        assert!(t.is_top());
+        assert_eq!(t, AbstractDomain::top(2));
+        let b: Polyhedron = from_lincons(
+            2, &vec![LinearConstraint::from_coeffs(vec![0., 0.], -3.)]);
+        assert!(b.is_bottom());
+        assert_eq!(b, AbstractDomain::bottom(2));
+    }
+
+    #[test]
+    fn join_normal() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+        let b: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 1.),
+                  LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                  LinearConstraint::from_coeffs(vec![-1., 0.], 3.)
+            ]);
+        // (0, 0), (3, 0), (0, 2), (3, 2) join (-3, -2), (-3, 4), (1, -2), (1, 4)
+        //   -3-2-1 0 1 2 3
+        //  4 +-------+ . .
+        //  3 | . . . . \ .
+        //  2 | . . + . . +
+        //  1 | . . . . . |
+        //  0 | . . + . . +
+        // -1 | . . . . / .
+        // -2 +-------+ . .
+        let c: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![-1., 0.], 3.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                  LinearConstraint::from_coeffs(vec![0., -1.], 2.),
+                  LinearConstraint::from_coeffs(vec![0., 1.], 4.),
+                  LinearConstraint::from_coeffs(vec![1., 1.], 5.),
+                  LinearConstraint::from_coeffs(vec![1., -1.], 3.)]);
+        assert_eq!(a.join(&b), c);
+    }
+
+    #[test]
+    fn join_top() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+        let t: Polyhedron = AbstractDomain::top(2);
+        assert!(a.join(&t).is_top());
+        assert_eq!(t.join(&a), t);
+    }
+
+    #[test]
+    fn join_bottom() {
+        let a: Polyhedron = from_lincons(
+            2,
+            &vec![LinearConstraint::from_coeffs(vec![0., 1.], 2.),
+                  LinearConstraint::from_coeffs(vec![1., 0.], 3.),
+                  LinearConstraint::from_coeffs(vec![0., -1.], 0.),
+                  LinearConstraint::from_coeffs(vec![-1., 0.], 0.)]);
+        let b: Polyhedron = AbstractDomain::bottom(2);
+        assert_eq!(a.join(&b), a);
+    }
+
+    // TODO: Test meet, remove_vars, assign, constrain
 }
