@@ -9,7 +9,6 @@ edition = "2018"
 [dependencies]
 nalgebra = "0.21.1"
 replace_with = "0.1.7"
-libc = "0.2.76"
 
 [build-dependencies]
 bindgen = "0.55.1"

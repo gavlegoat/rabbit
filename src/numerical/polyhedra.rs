@@ -11,18 +11,24 @@ use std::os::raw::{c_double, c_int};
 use crate::numerical::{AffineTransform, LinearConstraint, NumericalDomain};
 use crate::AbstractDomain;
 
-// Include generated bindings for GLPK and add a safe interface.
+// This polyhedra implementation is based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
+
+// Include generated bindings for GLPK
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+// Define a safe interface for GLPK problems.
 struct GLPProblem {
     prob: *mut glp_prob,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
-enum GLPStatus {
+// For our purposes it is sufficient to distinguish between infeasibility, unboundedness, unsolved
+// (for any other reason) or finite solutions.
+#[derive(PartialEq, Debug, Clone)]
+enum GLPResult {
     Infeasible,
     Unbounded,
     Unsolved,
+    Solved(f64),
 }
 
 impl GLPProblem {
@@ -32,8 +38,8 @@ impl GLPProblem {
         }
     }
 
+    // Load a problem defined as A x <= b into GLPK.
     fn load_matrix(&mut self, mat: &DMatrix<f64>, vec: &DVector<f64>) {
-        println!("{} {}", mat, vec);
         let nr = mat.nrows();
         let nc = mat.ncols();
         unsafe {
@@ -51,10 +57,6 @@ impl GLPProblem {
             }
         }
         let ne = (ar.len() - 1) as c_int;
-        println!("{:?}", ia);
-        println!("{:?}", ja);
-        println!("{:?}", ar);
-        println!("{}", ne);
         unsafe {
             glp_load_matrix(self.prob, ne, ia.as_ptr(), ja.as_ptr(), ar.as_ptr());
             for (i, v) in vec.iter().enumerate() {
@@ -66,9 +68,19 @@ impl GLPProblem {
                     *v as c_double,
                 );
             }
+            for i in 1..nc + 1 {
+                glp_set_col_bnds(
+                    self.prob,
+                    i as c_int,
+                    GLP_FR as c_int,
+                    0. as c_double,
+                    0. as c_double,
+                );
+            }
         }
     }
 
+    // Set the objective function to vec^T x + cst
     fn set_objective(&mut self, vec: &[f64], cst: f64) {
         unsafe {
             glp_set_obj_coef(self.prob, 0 as c_int, cst as c_double);
@@ -79,7 +91,8 @@ impl GLPProblem {
         }
     }
 
-    fn solve(&mut self) -> Result<f64, GLPStatus> {
+    // Solve a problem
+    fn solve(&mut self) -> GLPResult {
         unsafe {
             let mut params = {
                 let mut x = MaybeUninit::uninit();
@@ -89,24 +102,24 @@ impl GLPProblem {
             params.msg_lev = GLP_MSG_OFF as c_int;
             let simplex_res = glp_simplex(self.prob, &params);
             if simplex_res != 0 {
-                return Err(GLPStatus::Unsolved);
+                return GLPResult::Unsolved;
             }
             let solve_res = glp_get_status(self.prob) as u32;
             if solve_res == GLP_NOFEAS {
-                Err(GLPStatus::Infeasible)
+                GLPResult::Infeasible
             } else if solve_res == GLP_UNBND {
-                Err(GLPStatus::Unbounded)
+                GLPResult::Unbounded
             } else if solve_res == GLP_OPT {
                 let ret = glp_get_obj_val(self.prob);
-                Ok(ret as f64)
+                GLPResult::Solved(ret as f64)
             } else {
-                println!("solve_res: {}", solve_res);
-                Err(GLPStatus::Unsolved)
+                GLPResult::Unsolved
             }
         }
     }
 }
 
+// We need to be sure to free the problem object since it was allocated from within C.
 impl Drop for GLPProblem {
     fn drop(&mut self) {
         unsafe {
@@ -114,8 +127,6 @@ impl Drop for GLPProblem {
         }
     }
 }
-
-// Based on http://www2.in.tum.de/bib/files/simon05exploiting.pdf
 
 /// A polyhedron, i.e., a set of linear constraints.
 #[derive(Clone, Debug)]
@@ -125,6 +136,7 @@ pub struct Polyhedron {
     b: DVector<f64>,
 }
 
+// Equality is handled by double inclusion and in general checking equality can be slow.
 impl PartialEq for Polyhedron {
     fn eq(&self, other: &Polyhedron) -> bool {
         if self.dims() != other.dims() {
@@ -136,6 +148,7 @@ impl PartialEq for Polyhedron {
 
 impl Eq for Polyhedron {}
 
+// Project out a variable from a system of inequalities. See Fourier-Motzkin method.
 fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
     let mut cs: Vec<RowDVector<f64>> = Vec::new();
     let mut bs: Vec<f64> = Vec::new();
@@ -157,28 +170,39 @@ fn eliminate_column(a: &mut DMatrix<f64>, b: &mut DVector<f64>, col: usize) {
 }
 
 impl Polyhedron {
+    // Minimize the representation of this polyhedron by removing redundant constraints. In general
+    // many operations on polyhedra can introduce new constraints that are already implied by
+    // others, and these extra constraints can slow down analysis.
     fn minimize(&mut self) {
+        println!("Beginning a, b: {} {}", self.a, self.b);
         loop {
-            if self.a.nrows() == 0 {
+            if self.a.nrows() <= 1 {
                 break;
             }
             let mut elim = false;
             for (i, r) in self.a.row_iter().enumerate() {
+                println!("Candidate row: {}", i);
                 let mut prob = GLPProblem::new();
                 let mat = self.a.clone().remove_row(i);
                 let vec = self.b.clone().remove_row(i);
+                println!("Constraint a, b: {} {}", mat, vec);
                 prob.load_matrix(&mat, &vec);
+                println!("Objective: {} <= {}", r, self.b[i]);
                 // TODO: This can't be the best way to pass the row.
                 prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
                 let s = prob.solve();
+                println!("{:?}", s);
                 match s {
-                    Err(_) => continue,
-                    Ok(_) => {
-                        elim = true;
-                        replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
-                        replace_with_or_abort(&mut self.b, |b| b.remove_row(i));
-                        break;
+                    GLPResult::Solved(v) => {
+                        if v <= self.b[i] {
+                            println!("Eliminated.");
+                            elim = true;
+                            replace_with_or_abort(&mut self.a, |a| a.remove_row(i));
+                            replace_with_or_abort(&mut self.b, |b| b.remove_row(i));
+                            break;
+                        }
                     }
+                    _ => continue,
                 };
             }
             if !elim {
@@ -187,6 +211,8 @@ impl Polyhedron {
         }
     }
 
+    // Determine whether this polyhedron includes anothe by checking whether all of the constraints
+    // of this polyhedron are implied by other.
     fn includes(&self, other: &Polyhedron) -> bool {
         if self.a.nrows() == 0 {
             // This polyhedron is top, so it includes everything.
@@ -202,12 +228,12 @@ impl Polyhedron {
             prob.set_objective(&r.iter().cloned().collect::<Vec<f64>>(), 0.);
             let s = prob.solve();
             match s {
-                Err(_) => return false,
-                Ok(v) => {
+                GLPResult::Solved(v) => {
                     if v > self.b[i] {
                         return false;
                     }
                 }
+                _ => return false,
             };
         }
         true
@@ -325,13 +351,9 @@ impl AbstractDomain for Polyhedron {
         prob.load_matrix(&self.a, &self.b);
         prob.set_objective(&vec![1.; self.a.ncols()], 0.);
         let sol = prob.solve();
-        println!("{:?}", sol);
         match sol {
-            Ok(_) => false,
-            Err(e) => match e {
-                GLPStatus::Infeasible => true,
-                _ => false,
-            },
+            GLPResult::Infeasible => true,
+            _ => false,
         }
     }
 
@@ -528,4 +550,6 @@ mod test {
         assert_eq!(b.add_dims(vec![4]), a);
         assert_eq!(c.add_dims(vec![0, 3]), d);
     }
+
+    // TODO: Test meet, join, remove_vars, assign, constrain
 }
