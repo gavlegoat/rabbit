@@ -16,7 +16,7 @@ use crate::AbstractDomain;
 /// generally advisable to call the [`reduce`] function periodically in order to reduce
 /// the complexity.
 ///
-/// [`reduce`]: ./fn.reduce.html
+/// [`reduce`]: ./struct.Disjunction.html#method.reduce
 
 #[derive(Clone, Debug)]
 pub struct Disjunction<D> {
@@ -92,6 +92,7 @@ impl<D: AbstractDomain> Disjunction<D> {
     /// let mut d = Disjunction::from_parts(
     ///     vec![Interval::from_doubles(vec![0.], vec![1.], true),
     ///          Interval::from_doubles(vec![3.], vec![4.], true)]);
+    /// // Join elements until there is only one left.
     /// d.reduce(|v| if v.len() > 1 { Some((0, 1)) } else { None });
     /// assert_eq!(d.num_parts(), 1);
     /// assert_eq!(d.get_parts(), vec![Interval::from_doubles(vec![0.], vec![4.], true)]);
