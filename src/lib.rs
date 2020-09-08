@@ -13,7 +13,7 @@
 
 pub mod numerical;
 
-pub use crate::disjunctive::{reduce_disjunction, Disjunction};
+pub use crate::disjunctive::Disjunction;
 mod disjunctive;
 
 /// Defines all of the basic functionality needed to perform abstract interpretation.
