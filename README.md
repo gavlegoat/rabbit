@@ -15,8 +15,7 @@ to be addressed before rabbit is ready to be used:
 
 There are also several features I plan to add over time:
 
-* New numerical abstract domains including zonotopes and ellipsoids.
-* The ability to build disjunctive domains over arbitrary underlying domains.
+* New numerical abstract domains including zonotopes, ellipsoids, and octagons.
 * More utilities for non-numerical domains, such as a predicate abstraction.
 
 # Dependencies
